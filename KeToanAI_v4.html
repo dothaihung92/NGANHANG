@@ -328,6 +328,19 @@ function parseSaoke(text, currency) {
       candidates.push({ i, v, raw: (r[i] || "").trim() });
     }
 
+    // Detect a single signed amount column (e.g. "-1.000.000") mixed with other
+    // always-positive columns (like số dư). parseNum() zeroes negative numbers,
+    // so without this check the signed column would be dropped and a positive
+    // balance column could be mistaken for the transaction amount below.
+    const signedCandidates = candidates.filter(x => /^[+-]/.test(x.raw) && parseNum(x.raw.slice(1), isUSD) > 0);
+    if (signedCandidates.length === 1 && candidates.length >= 2) {
+      const sc = signedCandidates[0];
+      const n = parseNum(sc.raw.slice(1), isUSD);
+      return sc.raw.startsWith("-")
+        ? { debit: n, credit: 0, rawDebit: sc.raw, rawCredit: '' }
+        : { debit: 0, credit: n, rawDebit: '', rawCredit: sc.raw };
+    }
+
     // Filter: only cells that have a numeric value > 0
     const nonZero = candidates.filter(x => x.v > 0);
 
@@ -386,14 +399,15 @@ function parseSaoke(text, currency) {
   return data
     .filter(r => r.length > 1 && (r[ni] || "").length > 3)
     .map(r => {
-      const { debit, credit } = parseRow(r);
+      const { debit, credit, rawDebit, rawCredit } = parseRow(r);
       // Store raw amount text so ConfirmRow can detect parsing errors
       const rawAmt = r.slice(2).map(c=>(c||"").trim()).filter(c=>c&&c!=="0").join("|");
-      return { id: uid(), date: r[di]||"", desc: r[ni]||"", debit, credit, currency: currency||"VND", rawAmt };
+      return { id: uid(), date: r[di]||"", desc: r[ni]||"", debit, credit, currency: currency||"VND", rawAmt, rawDebit: rawDebit||"", rawCredit: rawCredit||"" };
     })
     .filter(r => r.desc.length > 3);
 }
-function parseInv(text) {
+function parseInv(text, currency) {
+  const isUSD = (currency||"VND")==="USD";
   const rows = parseTable(text);
   if (!rows.length) return [];
   const h = rows[0].map(c => normVN(c));
@@ -409,16 +423,16 @@ function parseInv(text) {
   const data = hasH ? rows.slice(1) : rows;
   return data.filter(r => r.length >= 2).map(r => {
     // Handle formula cells: prefer tienGoc+VAT sum, then TONG col, then last col
-    const tien = tienI >= 0 ? parseNum(r[tienI]) : 0;
-    const vat = vatI >= 0 ? parseNum(r[vatI]) : 0;
+    const tien = tienI >= 0 ? parseNum(r[tienI], isUSD) : 0;
+    const vat = vatI >= 0 ? parseNum(r[vatI], isUSD) : 0;
     let tong = 0;
     if (tienI >= 0 && tien > 0) {
       tong = tien + vat; // most reliable: compute from source columns
     } else if (tgI >= 0) {
       const raw = String(r[tgI] || "").trim();
-      tong = raw.startsWith("=") || !raw ? tien + vat : parseNum(raw);
+      tong = raw.startsWith("=") || !raw ? tien + vat : parseNum(raw, isUSD);
     } else {
-      tong = parseNum(r[r.length - 1]);
+      tong = parseNum(r[r.length - 1], isUSD);
     }
     return {
       id: uid(),
@@ -462,6 +476,9 @@ function parseNum(s, usd) {
   }
 
   const n = parseFloat(str.replace(/[^0-9.\-]/g, ""));
+  // Số âm luôn trả về 0 (parseNum không có khái niệm "âm"). Nếu cần giữ dấu
+  // (VD cột số tiền có dấu ±), phải tự strip dấu và xử lý ở nơi gọi TRƯỚC khi
+  // gọi hàm này — xem ví dụ signedCandidates trong parseSaoke().
   if (isNaN(n) || n < 0) return 0;
   const res = usd ? Math.round(n * 100) / 100 : Math.round(n);
   if (!usd && res > 9999000000000) return 0;
@@ -517,7 +534,9 @@ function autoFixZeroAmounts(rows, rawSaoke, currency) {
     comparable++;
     if (fresh > 0 && stored > 0 && Math.abs(fresh / stored - 1000) < 10) div1000Count++;
   });
-  const hasDiv1000Bug = comparable >= 3 && (div1000Count / comparable) >= 0.10;
+  // Sao kê ngắn (1-2 dòng so sánh được): yêu cầu TẤT CẢ đều lộ lỗi ÷1000 để tránh báo nhầm.
+  // Sao kê đủ dài (≥3 dòng): chỉ cần ≥10% số dòng lộ lỗi là đủ tin cậy.
+  const hasDiv1000Bug = comparable > 0 && (comparable >= 3 ? (div1000Count / comparable) >= 0.10 : div1000Count === comparable);
 
   // Also detect zero/tiny amounts
   const hasTinyBug = rows.some(r => {
@@ -578,7 +597,7 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
       confirmedMST: t1.mst,
       confirmedName: t1.ten_cty,
       confirmedLoai: tx.credit > 0 ? "DAURA" : "DAUVAO",
-      confirmedHach: t1.hach_toan || (tx.debit > 0 ? "331" : "133")
+      confirmedHach: t1.hach_toan || (tx.debit > 0 ? "331" : "131")
     } : {
       confirmed: null,
       confirmedMST: null,
@@ -606,18 +625,29 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
     // Parse transaction date for proximity sorting (dd/mm/yyyy)
     function parseDDMMYYYY(s) {
       if (!s) return 0;
+      const valid = (dd, mm, yy) => mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31 && yy > 0;
+      const build = (dd, mm, yy) => {
+        const y4 = yy < 100 ? 2000 + yy : yy; // 2-digit year → 20xx
+        const dt = new Date(y4, mm - 1, dd);
+        // Reject dates JS silently "rolled over" (e.g. 31/04 → 01/05)
+        if (dt.getFullYear() !== y4 || dt.getMonth() !== mm - 1 || dt.getDate() !== dd) return 0;
+        return dt.getTime();
+      };
       const p = String(s).trim().split(/[\/\-\.]/);
       if (p.length === 3) {
         // Try dd/mm/yyyy first
         const d = parseInt(p[0]),
           m = parseInt(p[1]),
           y = parseInt(p[2]);
-        if (y > 100) return new Date(y, m - 1, d).getTime();
+        if (y > 100 && valid(d, m, y)) return build(d, m, y);
         // Try yyyy/mm/dd
         const y2 = parseInt(p[0]),
           m2 = parseInt(p[1]),
           d2 = parseInt(p[2]);
-        if (y2 > 100) return new Date(y2, m2 - 1, d2).getTime();
+        if (y2 > 100 && valid(d2, m2, y2)) return build(d2, m2, y2);
+        // 2-digit year variants: dd/mm/yy and yy/mm/dd
+        if (y <= 100 && valid(d, m, y)) return build(d, m, y);
+        if (y2 <= 100 && valid(d2, m2, y2)) return build(d2, m2, y2);
       }
       return 0;
     }
@@ -736,20 +766,23 @@ function exportExcel(results, coName, allDict) {
     function buildBhxhRows(r, stt) {
       const amt = r.tx.debit || r.tx.credit || 0;
       const base = Math.round(amt / 0.32);
+      const p1 = Math.round(base * 0.255);
+      const p2 = Math.round(base * 0.045);
+      const p3 = amt - p1 - p2; // gán phần dư làm tròn vào dòng cuối để tổng 3 dòng luôn khớp đúng số tiền gốc
       const parts = [{
         hach: "3383",
         pct: 0.255,
-        amt: Math.round(base * 0.255),
+        amt: p1,
         label: "BHXH 25.5%"
       }, {
         hach: "3384",
         pct: 0.045,
-        amt: Math.round(base * 0.045),
+        amt: p2,
         label: "BHYT 4.5%"
       }, {
         hach: "3386",
         pct: 0.02,
-        amt: Math.round(base * 0.02),
+        amt: p3,
         label: "BHTN 2%"
       }];
       return parts.map((p, i) => [i === 0 ? stt : "", r.tx.date, `${r.tx.desc} [${p.label}]`, r.tx.debit > 0 ? p.amt : 0, r.tx.credit > 0 ? p.amt : 0, p.hach, r.confirmedMST || "", r.confirmedName || "", "BHXH tách"]);
@@ -1501,11 +1534,13 @@ function BackupPanel() {
   const [linked, setLinked] = useState(false);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [usedKB, setUsedKB] = useState(0);
   const supported = typeof window !== "undefined" && window.__FS && window.__FS.supported;
   React.useEffect(() => {
     if (!supported) return;
     window.__FS.loadHandle(h => { if (h) { window.__FS.handle = h; setLinked(true); setName(h.name || "data.json"); } });
   }, []);
+  React.useEffect(() => { setUsedKB(storageUsedKB()); }, []);
   const linkFile = async () => {
     if (!supported) { alert("Tr\xECnh duy\u1EC7t kh\xF4ng h\u1ED7 tr\u1EE3. H\xE3y d\xF9ng Chrome/Edge m\u1EDBi."); return; }
     setBusy(true);
@@ -1545,6 +1580,7 @@ function BackupPanel() {
     /*#__PURE__*/React.createElement("div", { style: { fontSize: 12, fontWeight: 600, color: "var(--text)", marginBottom: 6 } }, "\uD83D\uDCBE L\u01B0u v\xE0o m\xE1y t\xEDnh"),
     !supported && /*#__PURE__*/React.createElement("div", { style: { fontSize: 10, color: "var(--red)", marginBottom: 6 } }, "C\u1EA7n Chrome/Edge m\u1EDBi \u0111\u1EC3 d\xF9ng."),
     linked && /*#__PURE__*/React.createElement("div", { style: { fontSize: 10, color: "var(--green-d)", marginBottom: 6 } }, "\u2713 \u0110ang l\u01B0u v\xE0o: ", name),
+    /*#__PURE__*/React.createElement("div", { style: { fontSize: 10, color: usedKB > 4000 ? "var(--red)" : "var(--text3)", marginBottom: 6 } }, `\u0110\xE3 d\xF9ng ${usedKB} KB b\u1ED9 nh\u1EDB tr\xECnh duy\u1EC7t (localStorage)`, usedKB > 4000 && " \u2014 s\u1EAFp \u0111\u1EA7y, h\xE3y li\xEAn k\u1EBFt file / x\xF3a b\u1EDBt d\u1EEF li\u1EC7u c\u0169"),
     /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 6 } },
       /*#__PURE__*/React.createElement("button", { className: "btn btn-green", disabled: busy, style: { fontSize: 11 }, onClick: linked ? saveNowFile : linkFile }, linked ? "\uD83D\uDCBE L\u01B0u ngay v\xE0o file" : "\uD83D\uDD17 Ch\u1ECDn file tr\xEAn m\xE1y"),
       /*#__PURE__*/React.createElement("button", { className: "btn btn-outline", disabled: busy, style: { fontSize: 11 }, onClick: restoreFile }, "\uD83D\uDCC2 Kh\xF4i ph\u1EE5c t\u1EEB file")
@@ -2048,6 +2084,8 @@ function AccountTabs({co, activeAccountId, currency, onSelect, onSave}) {
     if(accounts.length<=1){alert("Phải có ít nhất 1 tài khoản!");return;}
     if(!confirm("Xoá tài khoản này? Dữ liệu sao kê của tài khoản sẽ bị mất.")) return;
     const updated = accounts.filter(a=>a.id!==accId);
+    // Xoá luôn session lưu trữ của tài khoản này để không để lại rác trong localStorage
+    LS.del("session_" + co.id + "_" + accId);
     onSave(updated);
     onSelect(updated[0]);
   };
@@ -2230,8 +2268,8 @@ function CompanyScreen({
     return next;
   });
   const sk = parseSaoke(saokeText, currency);
-  const dv = parseInv(dvText);
-  const dr = parseInv(drText);
+  const dv = parseInv(dvText, currency);
+  const dr = parseInv(drText, currency);
   const [importing, setImporting] = useState(false);
 
   // Read Excel file and auto-map sheets
@@ -3073,7 +3111,7 @@ function ConfirmScreen({
     }));
     if (kw && kw.trim().length >= 3) {
       setTimeout(() => {
-        setRows(prev => {
+        setRowsH(prev => {
           let count = 0;
           const next = prev.map(r => {
             if (r.confirmed || r.id === id) return r;
@@ -3107,6 +3145,20 @@ function ConfirmScreen({
   };
   const confirmRow = (id, val, mst, name, loai, kw) => setRowsH(prev => prev.map(r => {
     if (r.id !== id) return r;
+    // "Không khớp" (val !== "yes") không được mang theo MST/tên/hạch toán của gợi ý bị từ chối
+    if (val !== "yes") {
+      return {
+        ...r,
+        confirmed: val,
+        confirmedMST: "",
+        confirmedName: "",
+        confirmedLoai: null,
+        confirmedHach: "",
+        confirmedInvId: "",
+        manualConfirm: true,
+        manualKw: kw || ""
+      };
+    }
     const b = getBest(r);
     const defaultHach = r.tx.debit > 0 ? "331" : "131";
     const dictHach = b && b.hach_toan || "";
@@ -3123,11 +3175,21 @@ function ConfirmScreen({
   }));
 
   // ── Picker helpers ──────────────────────────────────────────────
+  // Tập hợp các hoá đơn đã được gán (đã xác nhận) cho MỘT giao dịch khác — để cảnh báo trùng lặp
+  const usedInvIds = React.useMemo(() => {
+    const s = new Set();
+    rows.forEach(r => {
+      if (r.confirmed !== "yes" || r.id === pickerFor || !r.confirmedInvId) return;
+      String(r.confirmedInvId).split(",").forEach(k => { if (k) s.add(k); });
+    });
+    return s;
+  }, [rows, pickerFor]);
   const getInvPool = row => {
     const pool = (row.tx.credit > 0 ? invDR : invDV) || [];
     return pool.map(i => ({
       ...i,
-      loai: row.tx.credit > 0 ? "DAURA" : "DAUVAO"
+      loai: row.tx.credit > 0 ? "DAURA" : "DAUVAO",
+      _used: usedInvIds.has(i.id || i.so_hd + "_" + i.ngay)
     }));
   };
   const openPicker = id => {
@@ -3168,7 +3230,12 @@ function ConfirmScreen({
     setPickerSelected(ns);
   };
   const assignInvoice = (rowId, inv, hach) => {
-    setRows(prev => prev.map(r => {
+    const invKey = inv.id || inv.so_hd + "_" + inv.ngay;
+    if (usedInvIds.has(invKey)) {
+      const ok = window.confirm(`Hoá đơn "${inv.so_hd || invKey}" đã được gắn cho 1 giao dịch khác.\nBạn có chắc muốn gắn trùng hoá đơn này không?`);
+      if (!ok) return;
+    }
+    setRowsH(prev => prev.map(r => {
       if (r.id !== rowId) return r;
       return {
         ...r,
@@ -3176,6 +3243,7 @@ function ConfirmScreen({
         confirmedMST: inv.mst || "",
         confirmedName: inv.ten_cty || "",
         confirmedLoai: inv.loai,
+        confirmedInvId: invKey,
         manualConfirm: true,
         manualKw: "",
         confirmedHach: hach || inv._hach || inv.hach_toan || (r.tx.debit > 0 ? "331" : "131")
@@ -3187,7 +3255,13 @@ function ConfirmScreen({
   const assignSelected = rowId => {
     if (!selectedInvs.length) return;
     const inv = selectedInvs[0];
-    setRows(prev => prev.map(r => {
+    const invKeys = selectedInvs.map(i => i.id || i.so_hd + "_" + i.ngay);
+    const dupKeys = invKeys.filter(k => usedInvIds.has(k));
+    if (dupKeys.length) {
+      const ok = window.confirm(`${dupKeys.length} hoá đơn trong lựa chọn đã được gắn cho giao dịch khác.\nBạn có chắc muốn gắn trùng không?`);
+      if (!ok) return;
+    }
+    setRowsH(prev => prev.map(r => {
       if (r.id !== rowId) return r;
       return {
         ...r,
@@ -3195,6 +3269,7 @@ function ConfirmScreen({
         confirmedMST: inv.mst || "",
         confirmedName: inv.ten_cty || "",
         confirmedLoai: inv.loai,
+        confirmedInvId: invKeys.join(","),
         manualConfirm: true,
         manualKw: "",
         confirmedNote: `Cộng ${selectedInvs.length} HĐ = ${fmt(selectedSum)}`
@@ -3211,7 +3286,13 @@ function ConfirmScreen({
     if (!r.tx.rawAmt || !storedAmt) return false;
     let exp = 0;
     r.tx.rawAmt.split("|").forEach(p => { const v = parseNum(p.trim()); if (v > exp) exp = v; });
-    return exp > 0 && Math.abs(exp / storedAmt - 1) > 0.01;
+    if (exp > 0 && Math.abs(exp / storedAmt - 1) > 0.01) return true;
+    // Phát hiện đảo Nợ/Có: cột nợ có văn bản gốc nhưng lưu = 0 (hoặc ngược lại với cột có)
+    const rawDebitEmpty = !(r.tx.rawDebit && parseNum(r.tx.rawDebit) > 0);
+    const rawCreditEmpty = !(r.tx.rawCredit && parseNum(r.tx.rawCredit) > 0);
+    if (!rawDebitEmpty && r.tx.debit === 0) return true;
+    if (!rawCreditEmpty && r.tx.credit === 0) return true;
+    return false;
   };
   const mismatchCount = rows.filter(isMismatchRow).length;
 
@@ -3682,6 +3763,7 @@ function ConfirmScreen({
       inv: inv,
       isSel: isSel,
       isExact: isExact,
+      isUsed: !!inv._used,
       txAmt: txAmt,
       pickerHach: pickerHach,
       defaultHach: pickerRow && pickerRow.tx.debit > 0 ? "331" : "131",
@@ -4085,6 +4167,7 @@ function PickerInvRow({
   inv,
   isSel,
   isExact,
+  isUsed,
   txAmt,
   pickerHach,
   defaultHach,
@@ -4107,7 +4190,7 @@ function PickerInvRow({
   return /*#__PURE__*/React.createElement("tr", {
     style: {
       borderBottom: "1px solid #f0f0f0",
-      background: isSel ? "#e6f5ed" : isExact ? "#f0faf8" : "#fff",
+      background: isSel ? "#e6f5ed" : isUsed ? "var(--amber-l)" : isExact ? "#f0faf8" : "#fff",
       cursor: "default"
     },
     onClick: onToggle
@@ -4139,7 +4222,19 @@ function PickerInvRow({
       wordBreak: "break-word",
       lineHeight: 1.4
     }
-  }, inv.ten_cty || "—"), /*#__PURE__*/React.createElement("td", {
+  }, inv.ten_cty || "—", isUsed && /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-block",
+      marginLeft: 6,
+      fontSize: 10,
+      padding: "1px 6px",
+      borderRadius: 999,
+      background: "var(--amber-l)",
+      color: "var(--amber)",
+      fontWeight: 500
+    },
+    title: "Hoá đơn này đã được gắn cho 1 giao dịch khác"
+  }, "Đã dùng")), /*#__PURE__*/React.createElement("td", {
     style: {
       padding: "8px 10px",
       whiteSpace: "nowrap"
