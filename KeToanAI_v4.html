@@ -254,7 +254,16 @@ function scoreKw(kw, desc) {
   if (nd.includes(nk)) return 1.0;
   const words = nk.split(" ").filter(w => w.length >= 3);
   if (!words.length) return 0;
-  return words.filter(w => nd.includes(w)).length / words.length;
+  const ndTokens = nd.split(" ");
+  const wordMatches = w => {
+    // Mảnh số thuần (VD "1701" tách ra từ từ khoá "TM:1701") chỉ được tính khớp khi nó
+    // là MỘT CỤM SỐ RIÊNG BIỆT trong nội dung giao dịch — không cho khớp kiểu "substring"
+    // tự do, vì rất dễ trùng ngẫu nhiên với một đoạn con bên trong mã tham chiếu ngân hàng
+    // dài (VD "19024052417012" chứa "1701" ở giữa nhưng không liên quan gì tới từ khoá).
+    if (/^[0-9]+$/.test(w)) return ndTokens.includes(w);
+    return nd.includes(w);
+  };
+  return words.filter(wordMatches).length / words.length;
 }
 const STOP = new Set(["CONG", "CTY", "TNHH", "MTV", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "XAY", "DUNG", "HOA", "DON", "THANH", "TOAN", "HANG", "TIEN", "NGAY", "NGAN", "HANG", "GD", "HD", "IB", "TT", "LA", "LO", "PHAT", "THE", "FOR", "AND", "PAY", "TAM", "MUT", "MUA", "VAN", "CHUYEN", "TRA", "QUA", "THEO", "NOP", "CHI", "NOI", "THAT", "VIET", "NAM", "PHAN", "MUC"]);
 function extractKw(desc) {
