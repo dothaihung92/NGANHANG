@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.04.2";
+const APP_VERSION = "2026.07.04.3";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3188,6 +3188,10 @@ function ConfirmScreen({
   const [addMode, setAddMode] = useState(false);
   const [addText, setAddText] = useState("");
   const [addBusy, setAddBusy] = useState(false);
+
+  // ── Xác nhận hàng loạt: chọn nhiều dòng giống nhau rồi gán MST/hạch toán 1 lần ──
+  const [bulkSelected, setBulkSelected] = useState(new Set());
+  const [bulkForm, setBulkForm] = useState({ mst: "", ten_cty: "", hach: "", kw: "" });
   const internalModalRow = internalModalFor ? rows.find(r => r.id === internalModalFor) : null;
   const internalModalOtherAccounts = (co.accounts||[]).filter(a => a.id !== activeTabAccId);
 
@@ -3434,6 +3438,64 @@ function ConfirmScreen({
     if (isGlobal) onSaveGl([...globalDict, entry]);else onSaveCo([...coDict, entry]);
     showToast(`Đã thêm "${kw}" vào từ điển`);
   };
+
+  // ── Bulk actions: chọn nhiều dòng giống nhau, gán MST/hạch toán 1 lần ──────
+  const toggleBulkSelect = id => setBulkSelected(prev => {
+    const ns = new Set(prev);
+    ns.has(id) ? ns.delete(id) : ns.add(id);
+    return ns;
+  });
+  const toggleBulkSelectAll = () => {
+    const pendingIds = filtered.filter(r => !r.confirmed).map(r => r.id);
+    const allSelected = pendingIds.length > 0 && pendingIds.every(id => bulkSelected.has(id));
+    setBulkSelected(allSelected ? new Set() : new Set(pendingIds));
+  };
+  const clearBulkSelection = () => setBulkSelected(new Set());
+  const bulkConfirmSelected = () => {
+    if (!bulkSelected.size) return;
+    const mst = bulkForm.mst.trim();
+    const ten_cty = bulkForm.ten_cty.trim();
+    const hach = bulkForm.hach.trim();
+    const kw = bulkForm.kw.trim();
+    const n = bulkSelected.size;
+    setRowsH(prev => prev.map(r => {
+      if (!bulkSelected.has(r.id)) return r;
+      return {
+        ...r,
+        confirmed: "yes",
+        confirmedMST: mst || r.confirmedMST || "",
+        confirmedName: ten_cty || r.confirmedName || "",
+        confirmedLoai: r.tx.credit > 0 ? "DAURA" : "DAUVAO",
+        confirmedHach: hach || r.confirmedHach || (r.tx.debit > 0 ? "331" : "131"),
+        manualConfirm: true,
+        manualKw: kw || r.manualKw || ""
+      };
+    }));
+    if (kw.length >= 3 && (mst || ten_cty)) addToDict(mst, ten_cty, kw, false, hach);
+    showToast(`✓ Đã xác nhận hàng loạt ${n} giao dịch`);
+    setBulkSelected(new Set());
+    setBulkForm({ mst: "", ten_cty: "", hach: "", kw: "" });
+  };
+  const bulkRejectSelected = () => {
+    if (!bulkSelected.size) return;
+    const n = bulkSelected.size;
+    setRowsH(prev => prev.map(r => {
+      if (!bulkSelected.has(r.id)) return r;
+      return {
+        ...r,
+        confirmed: "no",
+        confirmedMST: "",
+        confirmedName: "",
+        confirmedLoai: null,
+        confirmedHach: "",
+        confirmedInvId: "",
+        manualConfirm: true
+      };
+    }));
+    showToast(`Đã đánh dấu "Không khớp" cho ${n} giao dịch`);
+    setBulkSelected(new Set());
+  };
+
   const [focusIdx, setFocusIdx] = useState(0);
   const listRef = React.useRef(null);
 
@@ -4024,7 +4086,7 @@ function ConfirmScreen({
     )
   ),
   mismatchCount > 0 && /*#__PURE__*/React.createElement("div", {
-    onClick: () => { setFilter(filter === "mismatch" ? "all" : "mismatch"); setFocusIdx(0); },
+    onClick: () => { setFilter(filter === "mismatch" ? "all" : "mismatch"); setFocusIdx(0); clearBulkSelection(); },
     style: {
       background: filter === "mismatch" ? "#dc2626" : "#fee2e2",
       border: "1px solid #fca5a5",
@@ -4085,7 +4147,7 @@ function ConfirmScreen({
   }, [["all", "Tất cả " + rows.length], ["pending", "Chờ " + pending], ["auto", "Tự động " + autoOk], ["manual", "Thủ công " + manualOk], ["no", "Sai " + rejected], ...(mismatchCount > 0 ? [["mismatch", "⚠ Số liệu " + mismatchCount]] : [])].map(([v, lb]) => /*#__PURE__*/React.createElement("button", {
     key: v,
     className: `tab${filter === v ? " active" : ""}`,
-    onClick: () => { setFilter(v); setFocusIdx(0); },
+    onClick: () => { setFilter(v); setFocusIdx(0); clearBulkSelection(); },
     style: {
       fontSize: 12,
       padding: "5px 11px"
@@ -4244,13 +4306,79 @@ filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
       borderRadius: 3,
       padding: "0 4px"
     }
-  }, "Esc"), " Ra ngo\xE0i \xA0", /*#__PURE__*/React.createElement("kbd",{style:{background:"#fff",border:"1px solid #ddd",borderRadius:3,padding:"0 4px"}},"Alt+T"), " Ti\u1EC1n M\u1EB7t"), /*#__PURE__*/React.createElement("span", {
+  }, "Esc"), " Ra ngo\xE0i \xA0", /*#__PURE__*/React.createElement("kbd",{style:{background:"#fff",border:"1px solid #ddd",borderRadius:3,padding:"0 4px"}},"Alt+T"), " Ti\u1EC1n M\u1EB7t"), /*#__PURE__*/React.createElement("label", {
     style: {
       marginLeft: "auto",
+      display: "flex",
+      alignItems: "center",
+      gap: 5,
+      cursor: "pointer",
+      color: "var(--text2)"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: filtered.some(r => !r.confirmed) && filtered.filter(r => !r.confirmed).every(r => bulkSelected.has(r.id)),
+    onChange: toggleBulkSelectAll,
+    style: { cursor: "pointer", width: 13, height: 13 }
+  }), "Ch\u1ECDn t\u1EA5t c\u1EA3 (ch\u1EDD x\u1EED l\xFD)"), /*#__PURE__*/React.createElement("span", {
+    style: {
       color: "var(--blue)",
       fontWeight: 500
     }
-  }, "D\xF2ng ", focusIdx + 1, "/", filtered.length)), filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
+  }, "D\xF2ng ", focusIdx + 1, "/", filtered.length)), bulkSelected.size > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#fffbe6",
+      border: "1px solid #f0d878",
+      borderRadius: 8,
+      padding: "10px 12px",
+      marginBottom: 8,
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 8,
+      alignItems: "center"
+    }
+  },
+    /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, fontWeight: 600, color: "#8a6020" } }, "\u0110\xE3 ch\u1ECDn ", bulkSelected.size, " d\xF2ng:"),
+    /*#__PURE__*/React.createElement("input", {
+      placeholder: "MST",
+      value: bulkForm.mst,
+      onChange: e => setBulkForm(f => ({ ...f, mst: e.target.value })),
+      style: { width: 110, height: 28, fontSize: 12 }
+    }),
+    /*#__PURE__*/React.createElement("input", {
+      placeholder: "T\xEAn c\xF4ng ty",
+      value: bulkForm.ten_cty,
+      onChange: e => setBulkForm(f => ({ ...f, ten_cty: e.target.value })),
+      style: { width: 180, height: 28, fontSize: 12 }
+    }),
+    /*#__PURE__*/React.createElement("input", {
+      placeholder: "H\u1EA1ch to\xE1n (VD 131, 6427...)",
+      value: bulkForm.hach,
+      onChange: e => setBulkForm(f => ({ ...f, hach: e.target.value })),
+      style: { width: 150, height: 28, fontSize: 12 }
+    }),
+    /*#__PURE__*/React.createElement("input", {
+      placeholder: "Keyword d\xF9ng chung (t\xF9y ch\u1ECDn)",
+      value: bulkForm.kw,
+      onChange: e => setBulkForm(f => ({ ...f, kw: e.target.value })),
+      style: { width: 170, height: 28, fontSize: 12 }
+    }),
+    /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-green",
+      style: { height: 28, padding: "0 12px", fontSize: 12 },
+      onClick: bulkConfirmSelected
+    }, "\u2713 X\xE1c nh\u1EADn \u0111\xE3 ch\u1ECDn"),
+    /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-outline",
+      style: { height: 28, padding: "0 12px", fontSize: 12, color: "var(--red)", borderColor: "#f5c0c0" },
+      onClick: bulkRejectSelected
+    }, "Kh\xF4ng kh\u1EDBp \u0111\xE3 ch\u1ECDn"),
+    /*#__PURE__*/React.createElement("button", {
+      className: "btn btn-outline",
+      style: { height: 28, padding: "0 12px", fontSize: 12 },
+      onClick: clearBulkSelection
+    }, "B\u1ECF ch\u1ECDn")
+  ), filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     key: filter+"_"+r.id,
     row: r,
     onConfirm: confirmRow,
@@ -4263,7 +4391,9 @@ filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
     invPool: getInvPool(r),
     onPickInvById: (rowId, inv) => assignInvoice(rowId, inv, r.tx.debit>0?"331":"131"),
     isFocused: idx === focusIdx,
-    onFocus: () => setFocusIdx(idx)
+    onFocus: () => setFocusIdx(idx),
+    isSelected: bulkSelected.has(r.id),
+    onToggleSelect: toggleBulkSelect
   }))));
 }
 function PickerInvRow({
@@ -4431,7 +4561,9 @@ function ConfirmRow({
   allRows,
   onBhxh,
   isFocused,
-  onFocus
+  onFocus,
+  isSelected,
+  onToggleSelect
 }) {
   // Close edit mode on global Esc event
   React.useEffect(() => {
@@ -4546,16 +4678,24 @@ function ConfirmRow({
     "data-row": "1",
     onClick: onFocus,
     style: {
-      border: hasMismatch ? "2px solid #dc2626" : `1px solid ${isFocused ? "#1a5276" : borderColor}`,
+      position: "relative",
+      border: hasMismatch ? "2px solid #dc2626" : isSelected ? "1px solid #d4a017" : `1px solid ${isFocused ? "#1a5276" : borderColor}`,
       borderRadius: 8,
-      padding: "10px 12px",
+      padding: "10px 12px 10px 30px",
       marginBottom: 8,
-      background: hasMismatch && !r.confirmed ? "#fff5f5" : bgColor,
+      background: isSelected ? "#fffbe6" : hasMismatch && !r.confirmed ? "#fff5f5" : bgColor,
       outline: isFocused ? "2px solid #1a527640" : "none",
       outlineOffset: 1,
       transition: "outline .1s"
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, onToggleSelect && /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: !!isSelected,
+    onClick: e => e.stopPropagation(),
+    onChange: () => onToggleSelect(r.id),
+    title: "Chọn để xác nhận hàng loạt",
+    style: { position: "absolute", top: 12, left: 10, cursor: "pointer", width: 14, height: 14, zIndex: 2 }
+  }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
       gridTemplateColumns: "1fr 320px 155px",
