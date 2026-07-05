@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.1";
+const APP_VERSION = "2026.07.05.2";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1593,7 +1593,8 @@ function App() {
     onSaveGl: saveGl,
     invDV: processData && processData.invDV || [],
     invDR: processData && processData.invDR || [],
-    activeAccountId: inputData.activeAccountId
+    activeAccountId: inputData.activeAccountId,
+    saveCoAccounts: saveCoAccounts
   })), /*#__PURE__*/React.createElement("div", {
     style: {
       display: screen === "dict" && activeCo ? "block" : "none"
@@ -3127,10 +3128,25 @@ function ConfirmScreen({
   onSaveGl,
   invDV,
   invDR,
-  activeAccountId
+  activeAccountId,
+  saveCoAccounts
 }) {
   // ── Account tabs: all accounts with saved sessions ──
   const allAccounts = (co.accounts && co.accounts.length) ? co.accounts : [{id:null, label:"TK chính", currency:"VND"}];
+
+  // ── Sửa mã TK MISA ngay tại đây (dùng cho TK Nợ/TK Có khi xuất UNT/UNC) ──
+  const [editingMisaId, setEditingMisaId] = useState(null);
+  const [editMisa, setEditMisa] = useState("");
+  const startEditMisa = (acc, e) => {
+    e.stopPropagation();
+    setEditingMisaId(acc.id);
+    setEditMisa(acc.misaAcct || suggestMisaAcct(acc.label, acc.currency, allAccounts.filter(a=>a.id!==acc.id).map(a=>a.misaAcct||"")));
+  };
+  const saveMisa = (accId) => {
+    const trimmed = editMisa.trim();
+    if (saveCoAccounts) saveCoAccounts(co.id, allAccounts.map(a=>a.id===accId?{...a,misaAcct:trimmed}:a));
+    setEditingMisaId(null);
+  };
 
   // In-memory row cache per account tab — avoids loading stale LS data when switching back
   const rowsCache = React.useRef({});
@@ -4119,11 +4135,12 @@ function ConfirmScreen({
       const isusd = acc.currency === "USD";
       const hasData = accountsWithSession.some(a => a.id === acc.id) ||
         !!LS.get("session_"+(acc.id ? co.id+"_"+acc.id : co.id));
-      return /*#__PURE__*/React.createElement("button", {
-        key: acc.id || "main",
+      const isEditingMisa = editingMisaId === acc.id;
+      return /*#__PURE__*/React.createElement("div", {key: acc.id || "main", style:{display:"inline-flex",alignItems:"center",gap:2}},
+      /*#__PURE__*/React.createElement("button", {
         onClick: () => switchTab(acc.id),
         style: {
-          padding: "5px 14px", borderRadius: 7, border: "1px solid",
+          padding: "5px 14px", borderRadius: "7px 0 0 7px", border: "1px solid",
           borderColor: isActive ? (isusd ? "#1a5c4a" : "var(--green)") : (hasData ? "var(--amber)" : "var(--border)"),
           background: isActive ? (isusd ? "#1a5c4a" : "var(--green)") : (hasData ? "#fffbe6" : "#fff"),
           color: isActive ? "#fff" : "var(--text)",
@@ -4134,6 +4151,31 @@ function ConfirmScreen({
         /*#__PURE__*/React.createElement("span", {style:{fontSize:13}}, isusd ? "$" : "\u20ab"),
         acc.label,
         /*#__PURE__*/React.createElement("span", {style:{fontSize:10,opacity:.75,background:isActive?"rgba(255,255,255,.2)":"#f0f0f0",borderRadius:3,padding:"0 4px"}}, acc.currency)
+      ),
+      // M\u00e3 TK MISA c\u1ee7a t\u00e0i kho\u1ea3n n\u00e0y \u2014 d\u00f9ng l\u00e0m TK N\u1ee3 (UNT) / TK C\u00f3 (UNC) khi xu\u1ea5t, lu\u00f4n theo \u0111\u00fang tab \u0111ang ch\u1ecdn
+      isEditingMisa
+        ? /*#__PURE__*/React.createElement("div", {style:{display:"inline-flex",alignItems:"center",gap:0}},
+            /*#__PURE__*/React.createElement("input", {
+              autoFocus:true,
+              value:editMisa,
+              onChange:e=>setEditMisa(e.target.value),
+              onKeyDown:e=>{if(e.key==="Enter")saveMisa(acc.id);if(e.key==="Escape")setEditingMisaId(null);},
+              onBlur:()=>saveMisa(acc.id),
+              placeholder:"VD: 1121-VCB",
+              style:{width:100,height:28,fontSize:11,borderRadius:0,border:"1px solid var(--blue)",padding:"0 6px",outline:"none",background:"#fffef5"}
+            }),
+            /*#__PURE__*/React.createElement("button", {
+              onMouseDown:e=>{e.preventDefault();saveMisa(acc.id);},
+              style:{padding:"4px 8px",borderRadius:"0 7px 7px 0",border:"1px solid var(--blue)",borderLeft:"none",background:"var(--blue)",color:"#fff",fontSize:11,cursor:"pointer",height:28}
+            }, "\u2713")
+          )
+        : /*#__PURE__*/React.createElement("button", {
+            onClick: e => startEditMisa(acc, e),
+            title: "M\u00e3 TK k\u1ebf to\u00e1n MISA d\u00f9ng cho TK N\u1ee3 (UNT) / TK C\u00f3 (UNC) khi xu\u1ea5t \u2014 b\u1ea5m \u0111\u1ec3 s\u1eeda",
+            style:{padding:"5px 8px",borderRadius:"0 7px 7px 0",border:"1px solid",borderLeft:"none",
+              borderColor: isActive ? (isusd ? "#1a5c4a" : "var(--green)") : (hasData ? "var(--amber)" : "var(--border)"),
+              background:"#eef4fa",color:"var(--blue)",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}
+          }, "\ud83c\udfe6 "+(acc.misaAcct || suggestMisaAcct(acc.label, acc.currency, allAccounts.filter(a=>a.id!==acc.id).map(a=>a.misaAcct||""))))
       );
     })
   ),
