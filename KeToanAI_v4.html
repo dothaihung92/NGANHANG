@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.04.3";
+const APP_VERSION = "2026.07.05.1";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -948,6 +948,82 @@ function exportExcel(results, coName, allDict) {
     XLSX.writeFile(wb, `DoiChieu_${coName}_${dateStr.replace(/\//g, "-")}.xlsx`);
   } catch (e) {
     alert("Lỗi xuất Excel: " + e.message);
+    console.error(e);
+  }
+}
+
+// ── Export UNT / UNC cho MISA (mẫu Import chứng từ thu tiền / chi tiền gửi) ──
+// Số chứng từ tự sinh: PREFIX + ngày chứng từ (dd/mm/yyyy) + số thứ tự tăng dần trong lần
+// xuất này — luôn duy nhất trong 1 lần import (tối đa ~16 ký tự, giới hạn cho phép là 20).
+function buildVoucherNo(prefix, date, seq) {
+  return `${prefix}${date || ""}${seq}`.slice(0, 20);
+}
+
+function exportUNT(rows, coName, bankAcct) {
+  try {
+    const confirmedIn = rows.filter(r => r.confirmed === "yes" && (r.tx.credit || 0) > 0);
+    if (!confirmedIn.length) { alert("Không có giao dịch tiền vào đã xác nhận để xuất UNT."); return; }
+    const header = ["Hiển thị trên sổ", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Nộp vào TK", "Mở tại NH", "Lý do thu", "Diễn giải lý do thu ", "Nhân viên thu", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Đối tượng", "Khoản mục CP", "Đơn vị", "Đối tượng THCP", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Mã thống kê", ""];
+    const data = [header];
+    confirmedIn.forEach((r, i) => {
+      const seq = i + 1;
+      const hach = r.confirmedHach || "131";
+      const maDoiTuong = hach === "131" ? (r.confirmedMST || "KL") : "";
+      const row = new Array(header.length).fill("");
+      row[0] = "0";
+      row[1] = r.tx.date;
+      row[2] = r.tx.date;
+      row[3] = buildVoucherNo("UNT", r.tx.date, seq);
+      row[4] = maDoiTuong;
+      row[12] = (r.tx.desc || "").slice(0, 255);
+      row[13] = bankAcct || "1121";
+      row[14] = hach;
+      row[15] = r.tx.credit || 0;
+      row[25] = seq;
+      data.push(row);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = header.map((_, i) => ({ wch: i === 12 ? 60 : i === 3 ? 18 : 14 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Chứng từ thu tiền");
+    XLSX.writeFile(wb, `UNT_${coName}_${new Date().toLocaleDateString("vi-VN").replace(/\//g, "-")}.xlsx`);
+  } catch (e) {
+    alert("Lỗi xuất UNT: " + e.message);
+    console.error(e);
+  }
+}
+
+function exportUNC(rows, coName, bankAcct) {
+  try {
+    const confirmedOut = rows.filter(r => r.confirmed === "yes" && (r.tx.debit || 0) > 0);
+    if (!confirmedOut.length) { alert("Không có giao dịch tiền ra đã xác nhận để xuất UNC."); return; }
+    const header = ["Hiển thị trên sổ", "Phương thức thanh toán", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Tài khoản chi", "Mở tại NH", "Nội dung thanh toán", "Diễn giải nội dung thanh toán", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Tài khoản nhận", "Tên NH nhận", "Người lĩnh tiền", "Số CMND", "Ngày cấp CMND", "Nơi cấp CMND", "Nhân viên", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Mã đối tượng (Chi tiết)", "Khoản mục chi phí", "Đơn vị", "ĐT tập hợp chi phí", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Chi phí không hợp lý", "Mã thống kê", "Diễn giải (Thuế)", "TK thuế GTGT", "Tiền thuế GTGT", "% thuế GTGT", "Tỷ lệ tính thuế (Thuế suất KHAC)", "Giá trị HHDV chưa thuế", "Mẫu số hóa đơn", "Ký hiệu hóa đơn", "Số hóa đơn", "Ngày hóa đơn", "Nhóm HHDV mua vào", "Mã NCC", "Tên NCC", "Mã số thuế NCC", ""];
+    const data = [header];
+    confirmedOut.forEach((r, i) => {
+      const seq = i + 1;
+      const hach = r.confirmedHach || "331";
+      const maDoiTuong = hach === "331" ? (r.confirmedMST || "KL") : "";
+      const row = new Array(header.length).fill("");
+      row[0] = "0";
+      row[1] = "0";
+      row[2] = r.tx.date;
+      row[3] = r.tx.date;
+      row[4] = buildVoucherNo("UNC", r.tx.date, seq);
+      row[9] = maDoiTuong;
+      row[19] = (r.tx.desc || "").slice(0, 255);
+      row[20] = hach;
+      row[21] = bankAcct || "1121";
+      row[22] = r.tx.debit || 0;
+      row[47] = seq;
+      data.push(row);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = header.map((_, i) => ({ wch: i === 19 ? 60 : i === 4 ? 18 : 14 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Chứng từ Chi tiền gửi");
+    XLSX.writeFile(wb, `UNC_${coName}_${new Date().toLocaleDateString("vi-VN").replace(/\//g, "-")}.xlsx`);
+  } catch (e) {
+    alert("Lỗi xuất UNC: " + e.message);
     console.error(e);
   }
 }
@@ -2159,6 +2235,21 @@ function HomeScreen({
 // ── Company Screen ─────────────────────────────────────────────────────────────
 
 // ── AccountTabs: manage multiple bank accounts per company ─────────────────
+// Gợi ý mã TK kế toán dùng khi xuất UNT/UNC (VD: "1121-VCB", "1122" cho USD).
+// Mỗi tài khoản ngân hàng nên là 1 mã riêng để khớp với cách MISA tách sổ theo từng NH.
+function suggestMisaAcct(label, currency, existingCodes) {
+  const base = currency === "USD" ? "1122" : "1121";
+  const m = (label || "").toUpperCase().match(/([A-Z]{2,5})/);
+  const bankCode = m && m[1] !== "VND" && m[1] !== "USD" ? m[1] : "";
+  let suggestion = bankCode ? `${base}-${bankCode}` : base;
+  let n = 2;
+  while ((existingCodes || []).includes(suggestion)) {
+    suggestion = bankCode ? `${base}-${bankCode}${n}` : `${base}-${n}`;
+    n++;
+  }
+  return suggestion;
+}
+
 function AccountTabs({co, activeAccountId, currency, onSelect, onSave}) {
   const accounts = (co.accounts && co.accounts.length) ? co.accounts : [{id:"main",label:"TK chính",currency:"VND"}];
   const [showAdd, setShowAdd] = useState(false);
@@ -2166,6 +2257,8 @@ function AccountTabs({co, activeAccountId, currency, onSelect, onSave}) {
   const [newCurrency, setNewCurrency] = useState("VND");
   const [editingAccId, setEditingAccId] = useState(null); // which account label is being edited
   const [editLabel, setEditLabel] = useState("");
+  const [editingMisaId, setEditingMisaId] = useState(null); // which account's mã TK MISA is being edited
+  const [editMisa, setEditMisa] = useState("");
   const activeAcc = accounts.find(a=>a.id===activeAccountId) || accounts[0];
 
   // Auto-select first account if none selected
@@ -2175,11 +2268,26 @@ function AccountTabs({co, activeAccountId, currency, onSelect, onSave}) {
 
   const addAccount = () => {
     if(!newLabel.trim()) return;
-    const newAcc = {id:"acc_"+Math.random().toString(36).slice(2,10), label:newLabel.trim(), currency:newCurrency};
+    const misaAcct = suggestMisaAcct(newLabel.trim(), newCurrency, accounts.map(a=>a.misaAcct||""));
+    const newAcc = {id:"acc_"+Math.random().toString(36).slice(2,10), label:newLabel.trim(), currency:newCurrency, misaAcct};
     const updated = [...accounts, newAcc];
     onSave(updated);
     setNewLabel(""); setShowAdd(false);
     onSelect(newAcc);
+  };
+
+  const startEditMisa = (acc, e) => {
+    e.stopPropagation();
+    setEditingMisaId(acc.id);
+    setEditMisa(acc.misaAcct || suggestMisaAcct(acc.label, acc.currency, accounts.filter(a=>a.id!==acc.id).map(a=>a.misaAcct||"")));
+  };
+  const saveMisa = (accId) => {
+    const trimmed = editMisa.trim();
+    const updated = accounts.map(a=>a.id===accId?{...a,misaAcct:trimmed}:a);
+    onSave(updated);
+    const updAcc = updated.find(a=>a.id===accId);
+    if(updAcc && activeAccountId===accId) onSelect(updAcc);
+    setEditingMisaId(null);
   };
 
   const deleteAccount = (accId, e) => {
@@ -2222,6 +2330,7 @@ function AccountTabs({co, activeAccountId, currency, onSelect, onSave}) {
       ...accounts.map(acc => {
         const isActive = acc.id === activeAccountId || (!activeAccountId && acc === accounts[0]);
         const isEditing = editingAccId === acc.id;
+        const isEditingMisa = editingMisaId === acc.id;
         return React.createElement("div", {key:acc.id, style:{display:"flex",alignItems:"center",gap:0}},
           // Label button or inline edit input
           isEditing
@@ -2253,7 +2362,7 @@ function AccountTabs({co, activeAccountId, currency, onSelect, onSave}) {
                   color:isActive?"#fff":"var(--text)",fontSize:12,cursor:"pointer",fontWeight:isActive?600:400}
               }, (acc.currency==="USD"?"$ ":"₫ ")+acc.label),
           // Edit label button (pencil) — only when not in edit mode
-          !isEditing && React.createElement("button", {
+          !isEditing && !isEditingMisa && React.createElement("button", {
             onClick:e=>startEditLabel(acc,e),
             title:"Đổi tên tài khoản",
             style:{padding:"4px 5px",borderRadius:"0",border:"1px solid",borderLeft:"none",
@@ -2262,7 +2371,7 @@ function AccountTabs({co, activeAccountId, currency, onSelect, onSave}) {
               color:isActive?"#e8fde8":"var(--text3)",fontSize:10,cursor:"pointer",lineHeight:1}
           }, "\u270F\uFE0F"),
           // Currency toggle button — only when not editing
-          !isEditing && React.createElement("button", {
+          !isEditing && !isEditingMisa && React.createElement("button", {
             onClick:e=>{e.stopPropagation();updateCurrency(acc.id, acc.currency==="USD"?"VND":"USD");},
             title:"Đổi VND\u2194USD",
             style:{padding:"4px 6px",borderRadius:"0",border:"1px solid",borderLeft:"none",
@@ -2270,8 +2379,36 @@ function AccountTabs({co, activeAccountId, currency, onSelect, onSave}) {
               background:isActive?"#0f6b37":"#f8f8f8",
               color:isActive?"#fff":"var(--text3)",fontSize:10,cursor:"pointer"}
           }, acc.currency),
+          // Mã TK MISA (dùng cho xuất UNT/UNC) — badge hoặc ô sửa inline
+          !isEditing && (isEditingMisa
+            ? React.createElement("div", {style:{display:"flex",alignItems:"center",gap:0}},
+                React.createElement("input", {
+                  autoFocus:true,
+                  value:editMisa,
+                  onChange:e=>setEditMisa(e.target.value),
+                  onKeyDown:e=>{if(e.key==="Enter")saveMisa(acc.id);if(e.key==="Escape")setEditingMisaId(null);},
+                  onBlur:()=>saveMisa(acc.id),
+                  placeholder:"VD: 1121-VCB",
+                  style:{width:100,height:28,fontSize:11,borderRadius:0,border:"1px solid var(--blue)",
+                    borderLeft:"none",padding:"0 6px",outline:"none",background:"#fffef5"}
+                }),
+                React.createElement("button", {
+                  onMouseDown:e=>{e.preventDefault();saveMisa(acc.id);},
+                  style:{padding:"4px 8px",border:"1px solid var(--blue)",borderLeft:"none",
+                    background:"var(--blue)",color:"#fff",fontSize:11,cursor:"pointer",height:28}
+                }, "\u2713")
+              )
+            : React.createElement("button", {
+                onClick:e=>startEditMisa(acc,e),
+                title:"Mã TK kế toán MISA (dùng khi xuất UNT/UNC) — mỗi TK ngân hàng nên đặt 1 mã riêng",
+                style:{padding:"4px 6px",border:"1px solid",borderLeft:"none",
+                  borderColor:isActive?"var(--green)":"var(--border)",
+                  background:isActive?"#0d4d7a":"#eef4fa",
+                  color:isActive?"#dceeff":"var(--blue)",fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}
+              }, "\uD83C\uDFE6 "+(acc.misaAcct || suggestMisaAcct(acc.label, acc.currency, accounts.filter(a=>a.id!==acc.id).map(a=>a.misaAcct||""))))
+          ),
           // Delete button (only if >1 account and not editing)
-          !isEditing && accounts.length>1 && React.createElement("button", {
+          !isEditing && !isEditingMisa && accounts.length>1 && React.createElement("button", {
             onClick:e=>deleteAccount(acc.id,e),
             style:{padding:"4px 5px",borderRadius:"0 6px 6px 0",border:"1px solid",borderLeft:"none",
               borderColor:isActive?"var(--green)":"var(--border)",
@@ -4056,7 +4193,15 @@ function ConfirmScreen({
   }, "➕ Thêm sao kê"),/*#__PURE__*/React.createElement("button",{
     className:"btn btn-outline",
     onClick:()=>exportExcel(rows,co&&co.name||"export",[...coDict,...globalDict])
-  }, "\uD83D\uDCE5 Xu\u1EA5t Excel"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCE5 Xu\u1EA5t Excel"),/*#__PURE__*/React.createElement("button",{
+    className:"btn btn-outline",
+    title:"Xuất chứng từ thu tiền (tiền vào) theo mẫu import MISA",
+    onClick:()=>exportUNT(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []))
+  }, "\uD83D\uDCE5 Xuất UNT"),/*#__PURE__*/React.createElement("button",{
+    className:"btn btn-outline",
+    title:"Xuất chứng từ chi tiền gửi (tiền ra) theo mẫu import MISA",
+    onClick:()=>exportUNC(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []))
+  }, "\uD83D\uDCE5 Xuất UNC"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-green",
     onClick: handleSaveAndLearn
   }, "\u2713 L\u01B0u & h\u1ECDc"))), addMode && /*#__PURE__*/React.createElement("div", {
