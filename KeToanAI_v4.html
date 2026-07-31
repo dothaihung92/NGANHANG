@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.11";
+const APP_VERSION = "2026.07.05.12";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -277,10 +277,41 @@ function extractKw(desc) {
   return words.slice(0, 4).join(" ");
 }
 
-// Parse pasted/uploaded table
+// Parse pasted/uploaded table — nhận biết ô có dấu ngoặc kép kiểu Excel/CSV (VD ô "Nội dung"
+// bị Excel tự chèn xuống dòng bên trong: `...\t"dòng 1\ndòng 2"\t...`). Nếu tách dòng ngây thơ
+// theo "\n" như trước, 1 giao dịch có ô nội dung xuống dòng sẽ bị GÃY thành 2 dòng dữ liệu sai
+// lệch cột, làm mất số tiền. Ở đây coi dấu "\n"/"\t" bên trong cặp ngoặc kép là ký tự thường.
 function parseTable(text) {
   if (!text.trim()) return [];
-  return text.trim().split("\n").filter(l => l.trim()).map(l => l.split(/\t/).map(c => c.trim().replace(/^"|"$/g, "")));
+  const s = text.replace(/\r\n/g, "\n");
+  const rows = [];
+  let row = [], field = "", inQuotes = false;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (s[i + 1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else if (ch === "\n" || ch === "\r") {
+        field += " "; // xuống dòng bên trong ô → gộp lại thành 1 dòng, tránh gãy giao dịch
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"' && field === "") {
+      inQuotes = true;
+    } else if (ch === "\t") {
+      row.push(field); field = "";
+    } else if (ch === "\n") {
+      row.push(field); field = "";
+      if (row.some(c => c.trim())) rows.push(row);
+      row = [];
+    } else {
+      field += ch;
+    }
+  }
+  row.push(field);
+  if (row.some(c => c.trim())) rows.push(row);
+  return rows.map(r => r.map(c => c.trim()));
 }
 function parseSaoke(text, currency) {
   const isUSD = (currency||"VND")==="USD";
