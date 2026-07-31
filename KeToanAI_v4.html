@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.12";
+const APP_VERSION = "2026.07.05.13";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3941,6 +3941,42 @@ function ConfirmScreen({
     setAddBusy(false);
   };
 
+  // Ghi đè toàn bộ: xoá sạch dữ liệu sao kê + kết quả đối chiếu hiện có của tài khoản này,
+  // thay bằng đúng dữ liệu vừa dán vào — dùng khi cần dán lại sao kê để sửa dòng bị lỗi/sai sót
+  // (VD dòng bị mất số tiền do lỗi copy trước đây), thay vì phải xoá tay từng dòng cũ.
+  const overwriteSaoke = async () => {
+    if (!addText.trim() || addBusy) return;
+    if (!window.confirm("⚠ Thao tác này sẽ XOÁ TOÀN BỘ " + rows.length + " giao dịch đã đối chiếu hiện có của \"" + (activeTabAcc ? activeTabAcc.label : "tài khoản này") + "\" và thay bằng đúng dữ liệu vừa dán.\n\nCác giao dịch đã xác nhận trước đó sẽ mất, phải xác nhận lại từ đầu.\nBạn có chắc chắn muốn tiếp tục?")) return;
+    setAddBusy(true);
+    try {
+      const tabId = activeTabAccId;
+      const currency = activeTabAcc ? activeTabAcc.currency : "VND";
+      const newSaoke = parseSaoke(addText, currency);
+      if (!newSaoke.length) { showToast && showToast("Không nhận diện được giao dịch nào"); setAddBusy(false); return; }
+      const apiKey = LS.get("api_key") || "";
+      const newResults = await runMatching(newSaoke, invDV||[], invDR||[], coDict, globalDict, apiKey, () => {});
+      const saveKey = tabId ? co.id+"_"+tabId : co.id;
+      const existing = LS.get("session_"+saveKey) || {};
+      saveCoInvoices(co.id, invDV, invDR);
+      const baseA = {...existing, accountId: tabId, invDV: [], invDR: [], rawSaoke: addText, currency: currency};
+      let ok = LS.set("session_"+saveKey, {...baseA, results: slimRows(newResults)});
+      if (ok === false) ok = LS.set("session_"+saveKey, {...baseA, results: slimRowsHard(newResults)});
+      if (ok === false) { cleanupOrphanStorage(); ok = LS.set("session_"+saveKey, {...baseA, results: slimRowsHard(newResults)}); }
+      addToSessionIndex(co.id, saveKey);
+      if (ok === false) { showToast && showToast("⚠ Bộ nhớ trình duyệt đầy, không lưu được. Hãy xoá bớt công ty/dữ liệu cũ.", "warn"); setAddBusy(false); return; }
+      rowsCache.current[String(tabId)] = newResults;
+      undoStack.current = [...undoStack.current.slice(-29), rows]; // giữ Ctrl+Z để hoàn tác nếu bấm nhầm
+      redoStack.current = [];
+      setRows(newResults);
+      showToast && showToast("✓ Đã ghi đè " + newResults.length + " giao dịch");
+      setAddText("");
+      setAddMode(false);
+    } catch (e) {
+      showToast && showToast("Lỗi xử lý: " + (e.message||e));
+    }
+    setAddBusy(false);
+  };
+
   // Lưu & học: flush TẤT CẢ tab (hiện tại + cache) xuống LS rồi mới học từ khoá
   const handleSaveAndLearn = () => {
     // 1. Lưu tab hiện tại (giữ rawSaoke qua ...existing)
@@ -4358,11 +4394,11 @@ function ConfirmScreen({
     style: { background: "#f0fdf4", border: "1px solid var(--green)", borderRadius: 8, padding: "12px 14px", marginBottom: 12 }
   },
     /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--green-d)", marginBottom: 6 } },
-      "➕ Thêm dữ liệu sao kê vào ", activeTabAcc ? activeTabAcc.label : "", " (", activeTabAcc ? activeTabAcc.currency : "VND", ")"),
+      "➕ Thêm / ghi đè dữ liệu sao kê cho ", activeTabAcc ? activeTabAcc.label : "", " (", activeTabAcc ? activeTabAcc.currency : "VND", ")"),
     /*#__PURE__*/React.createElement("textarea", {
       value: addText,
       onChange: e => setAddText(e.target.value),
-      placeholder: "Dán thêm dòng sao kê mới vào đây (copy từ Excel / sao kê ngân hàng)...",
+      placeholder: "Dán dòng sao kê vào đây (copy từ Excel / sao kê ngân hàng)...",
       style: { width: "100%", minHeight: 90, fontSize: 12, fontFamily: "monospace", padding: 8, borderRadius: 6, border: "1px solid var(--border)", boxSizing: "border-box", resize: "vertical" }
     }),
     /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" } },
@@ -4370,14 +4406,22 @@ function ConfirmScreen({
         className: "btn btn-green",
         disabled: addBusy || !addText.trim(),
         onClick: addMoreSaoke,
+        title: "Thêm các giao dịch mới vào dữ liệu hiện có — giao dịch trùng (cùng ngày/nội dung/số tiền) sẽ tự bỏ qua",
         style: { opacity: (addBusy || !addText.trim()) ? .6 : 1 }
-      }, addBusy ? "Đang xử lý..." : "✓ Lưu & hiển thị"),
+      }, addBusy ? "Đang xử lý..." : "✓ Thêm vào (giữ dữ liệu cũ)"),
+      /*#__PURE__*/React.createElement("button", {
+        className: "btn btn-amber",
+        disabled: addBusy || !addText.trim(),
+        onClick: overwriteSaoke,
+        title: "Xoá sạch dữ liệu sao kê + đối chiếu hiện có của tài khoản này, thay bằng đúng dữ liệu vừa dán — dùng khi cần dán lại để sửa lỗi",
+        style: { opacity: (addBusy || !addText.trim()) ? .6 : 1 }
+      }, addBusy ? "Đang xử lý..." : "🔄 Ghi đè toàn bộ"),
       /*#__PURE__*/React.createElement("button", {
         className: "btn btn-outline",
         onClick: () => { setAddMode(false); setAddText(""); }
       }, "Huỷ"),
       /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "var(--text3)" } },
-        "Giao dịch trùng (cùng ngày / nội dung / số tiền) sẽ tự bỏ qua")
+        "\"Thêm vào\": giao dịch trùng tự bỏ qua · \"Ghi đè toàn bộ\": xoá hết dữ liệu cũ, thay bằng dữ liệu vừa dán")
     )
   ),
   mismatchCount > 0 && /*#__PURE__*/React.createElement("div", {
