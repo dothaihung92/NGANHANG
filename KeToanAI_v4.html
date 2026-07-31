@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.10";
+const APP_VERSION = "2026.07.05.11";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4972,15 +4972,15 @@ function ConfirmRow({
     }
   }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 11,
+      fontSize: 13,
       color: "var(--text3)",
-      marginBottom: 2
+      marginBottom: 3
     }
   }, r.tx.date), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 13,
+      fontSize: 15,
       lineHeight: 1.4,
-      marginBottom: 6
+      marginBottom: 7
     }
   }, r.tx.desc), /*#__PURE__*/React.createElement("div", {
     className: "flex",
@@ -4991,7 +4991,9 @@ function ConfirmRow({
   }, /*#__PURE__*/React.createElement("span", {
     className: `badge ${isDebit ? "badge-amber" : "badge-green"}`,
     style: {
-      fontSize: 11
+      fontSize: 14,
+      fontWeight: 600,
+      padding: "4px 10px"
     }
   }, isDebit ? "Tiền ra: " + fmt(r.tx.debit, r.tx.currency) : "Tiền vào: " + fmt(r.tx.credit, r.tx.currency)),
   hasMismatch && expectedAmt > 0 && /*#__PURE__*/React.createElement("span", {
