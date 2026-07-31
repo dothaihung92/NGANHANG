@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.6";
+const APP_VERSION = "2026.07.05.7";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3821,6 +3821,34 @@ function ConfirmScreen({
     }
   };
 
+  // Gợi ý chuyển khoản nội bộ hiển thị thẳng trên từng dòng (không cần mở modal) — cùng logic dò
+  // xuyên suốt các TK khác như openInternalModal, nhưng tính sẵn cho TẤT CẢ các dòng đang chờ xử lý.
+  // Chỉ tính lại khi rows/danh sách TK thực sự đổi (không phải mỗi lần gõ ô tìm kiếm) để tránh giật lag.
+  const internalSuggestions = React.useMemo(() => {
+    const map = {};
+    rows.forEach(r => {
+      if (r.confirmed) return;
+      let best = null;
+      for (const acc of internalModalOtherAccounts) {
+        const scored = findInternalCandidatesFor(r, acc.id);
+        if (scored.length && (!best || scored[0].dayDiff < best.dayDiff)) {
+          best = { accId: acc.id, accLabel: acc.label, accCurrency: acc.currency, row: scored[0].o, dayDiff: scored[0].dayDiff };
+        }
+      }
+      if (best) map[r.id] = best;
+    });
+    return map;
+  }, [rows, co.accounts, activeTabAccId]);
+
+  const quickAcceptInternal = (rowId, sug) => {
+    const txRow = rows.find(r => r.id === rowId);
+    if (!txRow || !sug) return;
+    const hach = getDefaultHach(sug.accId);
+    const isSkip = txRow.tx.debit > 0;
+    internalTransferRow(rowId, sug.accId, sug.accLabel, sug.accCurrency, hach, isSkip, sug.row.id);
+    showToast("✓ Đã tự xác nhận chuyển khoản nội bộ với " + sug.accLabel);
+  };
+
   // Fix amount directly from raw sao ke text — clears rawAmt so mismatch won't re-trigger
   const fixAmtRow = (id, correctDebit, correctCredit) => {
     setRowsH(prev => prev.map(r => r.id !== id ? r : {
@@ -4615,6 +4643,8 @@ filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
     onInternal: openInternalModal,
     onFixAmt: fixAmtRow,
     invPool: getInvPool(r),
+    internalSuggestion: internalSuggestions[r.id],
+    onQuickInternal: quickAcceptInternal,
     onPickInvById: (rowId, inv) => assignInvoice(rowId, inv, r.tx.debit>0?"331":"131"),
     isFocused: idx === focusIdx,
     onFocus: () => setFocusIdx(idx),
@@ -4789,7 +4819,9 @@ function ConfirmRow({
   isFocused,
   onFocus,
   isSelected,
-  onToggleSelect
+  onToggleSelect,
+  internalSuggestion,
+  onQuickInternal
 }) {
   // Close edit mode on global Esc event
   React.useEffect(() => {
@@ -5169,7 +5201,50 @@ function ConfirmRow({
         fontFamily: "monospace"
       }
     }, inv.mst || ""));
-  }))), !r.t1_dict && (!r.invMatches || !r.invMatches.length) && (!r.nameMatches || !r.nameMatches.length) && /*#__PURE__*/React.createElement("div", {
+  }))), internalSuggestion && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      padding: "8px 10px",
+      marginBottom: 6,
+      background: "#f5f0ff",
+      border: "1px solid #d4c5f9",
+      borderRadius: 6
+    }
+  },
+    /*#__PURE__*/React.createElement("div", {
+      style: { display: "flex", alignItems: "center", gap: 6, fontWeight: 600, color: "#7c3aed", marginBottom: 3 }
+    },
+      "⇔ Khớp nội bộ: ",
+      fmt(Math.max(internalSuggestion.row.tx.debit||0, internalSuggestion.row.tx.credit||0), r.tx.currency),
+      " tại ", internalSuggestion.accLabel,
+      /*#__PURE__*/React.createElement("span", {
+        style: {
+          fontSize: 10,
+          fontWeight: 500,
+          borderRadius: 4,
+          padding: "1px 6px",
+          background: internalSuggestion.dayDiff === 0 ? "#dcfce7" : "#fef9c3",
+          color: internalSuggestion.dayDiff === 0 ? "#16a34a" : "#854d0e"
+        }
+      }, internalSuggestion.dayDiff === 0 ? "C\xF9ng ng\xE0y" : "Lệch 1 ng\xE0y")
+    ),
+    /*#__PURE__*/React.createElement("div", {
+      style: { fontSize: 11, color: "#666", marginBottom: 6, wordBreak: "break-word" }
+    }, internalSuggestion.row.tx.desc),
+    /*#__PURE__*/React.createElement("button", {
+      onClick: e => { e.stopPropagation(); onQuickInternal(r.id, internalSuggestion); },
+      style: {
+        fontSize: 12,
+        padding: "5px 12px",
+        borderRadius: 6,
+        border: "none",
+        background: "#7c3aed",
+        color: "#fff",
+        cursor: "pointer",
+        fontWeight: 600
+      }
+    }, "✓ D\xF9ng gợi \xFD n\xE0y (tự hạch to\xE1n)")
+  ), !internalSuggestion && !r.t1_dict && (!r.invMatches || !r.invMatches.length) && (!r.nameMatches || !r.nameMatches.length) && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "var(--text3)",
