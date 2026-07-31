@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.5";
+const APP_VERSION = "2026.07.05.6";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3725,43 +3725,50 @@ function ConfirmScreen({
   // nếu không, regex ngày sẽ không khớp và bị fallback sang new Date() (hiểu sai dd-mm-yyyy) → GD bị loại nhầm.
   const parseVNDateI = d => { if(!d)return null; const s=String(d).trim().split(/\s+/)[0]; const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/); return m?new Date(m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")):new Date(d); };
   const getOtherRows = accId => { const k=String(accId); if(rowsCache.current[k]&&rowsCache.current[k].length>0)return rowsCache.current[k]; const ls=accId?co.id+"_"+accId:co.id; const s=LS.get("session_"+ls); if(s&&s.results){rowsCache.current[k]=s.results;return s.results;} return []; };
-  const loadInternalCandidates = (rowId, accId) => {
-    if(!accId||!rowId){setInternalModalCandidates([]);return;}
-    const txRow=rows.find(r=>r.id===rowId); if(!txRow)return;
-    // Bên này NHẬN tiền (Có) → bên TK kia phải là RÚT tiền (Nợ), và ngược lại — 2 vế 1 giao dịch nội bộ luôn ngược dấu nhau
+  // Lọc ứng viên cho 1 tài khoản cụ thể: đúng chiều ngược dấu + lệch tối đa 1 ngày + KHỚP ĐÚNG SỐ TIỀN.
+  // Chuyển khoản nội bộ giữa 2 TK của cùng công ty thì số tiền 2 bên luôn giống hệt nhau (trừ khi có phí
+  // ngân hàng cộng thêm — trường hợp đó xử lý riêng bằng "Nhập khác"), nên không cần hiện các số tiền khác.
+  const findInternalCandidatesFor = (txRow, accId) => {
     const myIsCredit = (txRow.tx.credit||0) > 0;
     const myAmt = Math.max(txRow.tx.debit||0, txRow.tx.credit||0);
-    const txDate=parseVNDateI(txRow.tx.date);
-    // Chỉ xét GD lệch tối đa 1 ngày — chuyển khoản nội bộ giữa 2 TK cùng công ty luôn cùng ngày hoặc lệch 1 ngày
-    // do xử lý ngân hàng, không cần dò xa hơn (tránh gợi ý nhầm GD không liên quan cách xa hàng chục/trăm ngày)
-    const oRows=getOtherRows(accId).filter(o => {
+    const txDate = parseVNDateI(txRow.tx.date);
+    const oRows = getOtherRows(accId).filter(o => {
+      if (o.confirmed) return false;
       if (myIsCredit ? !((o.tx.debit||0) > 0) : !((o.tx.credit||0) > 0)) return false;
+      const oAmt = Math.max(o.tx.debit||0, o.tx.credit||0);
+      if (!(myAmt > 0 && oAmt > 0 && Math.abs(oAmt - myAmt) < 1)) return false;
       if (!txDate || !o.tx.date) return true;
       return Math.abs((txDate - parseVNDateI(o.tx.date)) / 86400000) <= 1;
     });
-    const tok=s=>s.toUpperCase().replace(/[^A-Z0-9]/g," ").split(" ").filter(t=>t.length>=3);
-    const myT=new Set(tok((txRow.tx.desc||"").toUpperCase()));
-    const sc=o=>{
-      const ot=tok(o.tx.desc||"");let sh=0;for(const t of ot)if(myT.has(t))sh++;
-      let s=myT.size>0?(sh/myT.size)*60:0;
-      let sameDay=false;
-      if(txDate&&o.tx.date){const d=Math.abs((txDate-parseVNDateI(o.tx.date))/86400000);s+=d===0?40:35;sameDay=d===0;}
-      const oAmt=Math.max(o.tx.debit||0,o.tx.credit||0);
-      const sameAmt = myAmt>0 && oAmt>0 && Math.abs(oAmt-myAmt)<1;
-      // Khớp đúng số tiền là tín hiệu mạnh nhất cho 1 cặp chuyển khoản nội bộ — cùng ngày nữa thì gần như chắc chắn
-      if(sameAmt) s += 100;
-      if(sameAmt && sameDay) s += 50;
-      return s;
-    };
-    const scored=oRows.filter(o=>!o.confirmed).map(o=>({o,s:sc(o)})).sort((a,b)=>b.s-a.s).slice(0,20);
-    const cands=scored.map(x=>x.o);
+    return oRows.map(o => {
+      let dayDiff = Infinity;
+      if (txDate && o.tx.date) dayDiff = Math.abs((txDate - parseVNDateI(o.tx.date)) / 86400000);
+      return { o, dayDiff };
+    }).sort((a, b) => a.dayDiff - b.dayDiff);
+  };
+  const loadInternalCandidates = (rowId, accId) => {
+    if(!accId||!rowId){setInternalModalCandidates([]);return;}
+    const txRow=rows.find(r=>r.id===rowId); if(!txRow)return;
+    const scored = findInternalCandidatesFor(txRow, accId).slice(0, 20);
+    const cands = scored.map(x=>x.o);
     setInternalModalCandidates(cands);
-    const top=scored[0];
-    const topSameAmt = top && myAmt>0 && Math.abs(Math.max(top.o.tx.debit||0,top.o.tx.credit||0)-myAmt)<1;
-    if(cands.length===1)setInternalModalOtherRowId(cands[0].id);
-    else if(topSameAmt)setInternalModalOtherRowId(top.o.id); // đúng số tiền (± cùng ngày) → tự chọn ngay, khỏi cần đạt ngưỡng điểm chung
-    else if(top&&top.s>=50)setInternalModalOtherRowId(top.o.id);
+    // Đã lọc đúng số tiền rồi — chỉ cần lấy GD gần ngày nhất làm lựa chọn mặc định
+    if (scored.length) setInternalModalOtherRowId(scored[0].o.id);
     else setInternalModalOtherRowId(null);
+  };
+  // Dò XUYÊN SUỐT tất cả tài khoản ngân hàng khác để tìm sẵn GD khớp đúng số tiền + gần ngày nhất,
+  // khỏi bắt người dùng phải tự chọn đúng tài khoản ngân hàng trước rồi mới thấy gợi ý.
+  const findBestInternalAcrossAccounts = (rowId) => {
+    const txRow = rows.find(r => r.id === rowId);
+    if (!txRow) return null;
+    let best = null;
+    for (const acc of internalModalOtherAccounts) {
+      const scored = findInternalCandidatesFor(txRow, acc.id);
+      if (scored.length && (!best || scored[0].dayDiff < best.dayDiff)) {
+        best = { accId: acc.id, rowId: scored[0].o.id, dayDiff: scored[0].dayDiff };
+      }
+    }
+    return best;
   };
   // Extract bank code from account label: "1121-MB"→MB, "1121-TCB-86878788"→TCB, "1234 - VPB"→VPB
   const getBankCode = (accId) => {
@@ -3782,7 +3789,12 @@ function ConfirmScreen({
   };
 
   const openInternalModal = rowId => {
-    const txRow=rows.find(r=>r.id===rowId),fa=internalModalOtherAccounts[0],aid=fa?fa.id:null;
+    const txRow=rows.find(r=>r.id===rowId);
+    // Tự tìm trước xem có TK ngân hàng nào khác đang chứa GD khớp đúng số tiền không, để chọn sẵn TK đó
+    // thay vì luôn mặc định TK đầu tiên trong danh sách rồi bắt người dùng tự bấm qua từng TK để tìm.
+    const auto=findBestInternalAcrossAccounts(rowId);
+    const fa=auto?internalModalOtherAccounts.find(a=>a.id===auto.accId):internalModalOtherAccounts[0];
+    const aid=fa?fa.id:null;
     setInternalModalFor(rowId);setInternalModalAccId(aid);
     setInternalModalHach(getDefaultHach(aid));
     setInternalModalSkip(txRow?txRow.tx.debit>0:false);
@@ -4405,7 +4417,7 @@ internalModalFor&&internalModalRow&&React.createElement("div",{
         React.createElement("div",{style:{flex:1,overflowY:"auto",border:"1px solid #e2d9f3",borderRadius:6}},
           (()=>{const q=internalModalSearch.toLowerCase();
             const disp=internalModalCandidates.filter(c=>!q||(c.tx.desc||"").toLowerCase().includes(q));
-            if(!disp.length)return React.createElement("div",{style:{padding:"24px",textAlign:"center",color:"#888",fontSize:12,fontStyle:"italic"}},internalModalCandidates.length===0?"Không tìm thấy GD chưa xác nhận":"Không có kết quả khớp");
+            if(!disp.length)return React.createElement("div",{style:{padding:"24px",textAlign:"center",color:"#888",fontSize:12,fontStyle:"italic"}},internalModalCandidates.length===0?"Không tìm thấy GD nào khớp đúng số tiền (± 1 ngày) ở TK này — thử chọn TK khác":"Không có kết quả khớp với từ khoá lọc");
             const pd=d=>{if(!d)return null;const m=String(d).match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);return m?new Date(m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")):new Date(d);};
             return disp.map((cand,ci)=>{
               const isSel=internalModalOtherRowId===cand.id;
