@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.8";
+const APP_VERSION = "2026.07.05.9";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4432,7 +4432,80 @@ function ConfirmScreen({
       color: "var(--text3)",
       alignSelf: "center"
     }
-  }, filtered.length, "/", rows.length)))), /*#__PURE__*/React.createElement("div",null,
+  }, filtered.length, "/", rows.length))), filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 10,
+      color: "var(--text3)",
+      marginBottom: 8,
+      padding: "4px 8px",
+      background: "#f8f8f8",
+      borderRadius: 5,
+      display: "flex",
+      gap: 12,
+      flexWrap: "wrap"
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\u2328\uFE0F ", /*#__PURE__*/React.createElement("kbd", {
+    style: {
+      background: "#fff",
+      border: "1px solid #ddd",
+      borderRadius: 3,
+      padding: "0 4px"
+    }
+  }, "Enter"), " \u0110\xFAng \xA0", /*#__PURE__*/React.createElement("kbd", {
+    style: {
+      background: "#fff",
+      border: "1px solid #ddd",
+      borderRadius: 3,
+      padding: "0 4px"
+    }
+  }, "N"), " Kh\xF4ng kh\u1EDBp \xA0", /*#__PURE__*/React.createElement("kbd", {
+    style: {
+      background: "#fff",
+      border: "1px solid #ddd",
+      borderRadius: 3,
+      padding: "0 4px"
+    }
+  }, "\u2191\u2193"), " Chuy\u1EC3n \xA0", /*#__PURE__*/React.createElement("kbd", {
+    style: {
+      background: "#fff",
+      border: "1px solid #ddd",
+      borderRadius: 3,
+      padding: "0 4px"
+    }
+  }, "Alt+C"), " Ch\u1ECDn H\u0110 \xA0", /*#__PURE__*/React.createElement("kbd", {
+    style: {
+      background: "#fff",
+      border: "1px solid #ddd",
+      borderRadius: 3,
+      padding: "0 4px"
+    }
+  }, "Alt+G"), " G\u1EAFn \xA0", /*#__PURE__*/React.createElement("kbd", {
+    style: {
+      background: "#fff",
+      border: "1px solid #ddd",
+      borderRadius: 3,
+      padding: "0 4px"
+    }
+  }, "Esc"), " Ra ngo\xE0i \xA0", /*#__PURE__*/React.createElement("kbd",{style:{background:"#fff",border:"1px solid #ddd",borderRadius:3,padding:"0 4px"}},"Alt+T"), " Ti\u1EC1n M\u1EB7t"), /*#__PURE__*/React.createElement("label", {
+    style: {
+      marginLeft: "auto",
+      display: "flex",
+      alignItems: "center",
+      gap: 5,
+      cursor: "pointer",
+      color: "var(--text2)"
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    checked: filtered.some(r => !r.confirmed) && filtered.filter(r => !r.confirmed).every(r => bulkSelected.has(r.id)),
+    onChange: toggleBulkSelectAll,
+    style: { cursor: "pointer", width: 13, height: 13 }
+  }), "Ch\u1ECDn t\u1EA5t c\u1EA3 (ch\u1EDD x\u1EED l\xFD)"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: "var(--blue)",
+      fontWeight: 500
+    }
+  }, "D\xF2ng ", focusIdx + 1, "/", filtered.length))), /*#__PURE__*/React.createElement("div",null,
 internalModalFor&&internalModalRow&&React.createElement("div",{
   style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20},
   onClick:closeInternalModal},
@@ -4516,80 +4589,7 @@ internalModalFor&&internalModalRow&&React.createElement("div",{
   rows.length > 0 && filtered.length === 0 && /*#__PURE__*/React.createElement("div", {
     style: {padding:"2rem",textAlign:"center",color:"var(--text2)",background:"#f8f8f8",borderRadius:8}
   }, "Kh\xF4ng c\xF3 giao d\u1ECBch n\xe0o."),
-filtered.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 10,
-      color: "var(--text3)",
-      marginBottom: 8,
-      padding: "4px 8px",
-      background: "#f8f8f8",
-      borderRadius: 5,
-      display: "flex",
-      gap: 12,
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "\u2328\uFE0F ", /*#__PURE__*/React.createElement("kbd", {
-    style: {
-      background: "#fff",
-      border: "1px solid #ddd",
-      borderRadius: 3,
-      padding: "0 4px"
-    }
-  }, "Enter"), " \u0110\xFAng \xA0", /*#__PURE__*/React.createElement("kbd", {
-    style: {
-      background: "#fff",
-      border: "1px solid #ddd",
-      borderRadius: 3,
-      padding: "0 4px"
-    }
-  }, "N"), " Kh\xF4ng kh\u1EDBp \xA0", /*#__PURE__*/React.createElement("kbd", {
-    style: {
-      background: "#fff",
-      border: "1px solid #ddd",
-      borderRadius: 3,
-      padding: "0 4px"
-    }
-  }, "\u2191\u2193"), " Chuy\u1EC3n \xA0", /*#__PURE__*/React.createElement("kbd", {
-    style: {
-      background: "#fff",
-      border: "1px solid #ddd",
-      borderRadius: 3,
-      padding: "0 4px"
-    }
-  }, "Alt+C"), " Ch\u1ECDn H\u0110 \xA0", /*#__PURE__*/React.createElement("kbd", {
-    style: {
-      background: "#fff",
-      border: "1px solid #ddd",
-      borderRadius: 3,
-      padding: "0 4px"
-    }
-  }, "Alt+G"), " G\u1EAFn \xA0", /*#__PURE__*/React.createElement("kbd", {
-    style: {
-      background: "#fff",
-      border: "1px solid #ddd",
-      borderRadius: 3,
-      padding: "0 4px"
-    }
-  }, "Esc"), " Ra ngo\xE0i \xA0", /*#__PURE__*/React.createElement("kbd",{style:{background:"#fff",border:"1px solid #ddd",borderRadius:3,padding:"0 4px"}},"Alt+T"), " Ti\u1EC1n M\u1EB7t"), /*#__PURE__*/React.createElement("label", {
-    style: {
-      marginLeft: "auto",
-      display: "flex",
-      alignItems: "center",
-      gap: 5,
-      cursor: "pointer",
-      color: "var(--text2)"
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "checkbox",
-    checked: filtered.some(r => !r.confirmed) && filtered.filter(r => !r.confirmed).every(r => bulkSelected.has(r.id)),
-    onChange: toggleBulkSelectAll,
-    style: { cursor: "pointer", width: 13, height: 13 }
-  }), "Ch\u1ECDn t\u1EA5t c\u1EA3 (ch\u1EDD x\u1EED l\xFD)"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--blue)",
-      fontWeight: 500
-    }
-  }, "D\xF2ng ", focusIdx + 1, "/", filtered.length)), bulkSelected.size > 0 && /*#__PURE__*/React.createElement("div", {
+bulkSelected.size > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#fffbe6",
       border: "1px solid #f0d878",
