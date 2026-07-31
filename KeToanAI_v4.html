@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.7";
+const APP_VERSION = "2026.07.05.8";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -961,7 +961,10 @@ function buildVoucherNo(prefix, date, seq) {
 
 function exportUNT(rows, coName, bankAcct) {
   try {
-    const confirmedIn = rows.filter(r => r.confirmed === "yes" && (r.tx.credit || 0) > 0);
+    // Dòng bên kia của 1 giao dịch chuyển khoản nội bộ (hạch toán = "X") chỉ là placeholder tự động
+    // đánh dấu — bên đã bấm xác nhận nội bộ đã hạch toán đủ cả 2 vế bằng mã TK thật rồi, đưa dòng "X"
+    // này vào UNT sẽ ghi trùng 1 lần nữa nên phải loại bỏ.
+    const confirmedIn = rows.filter(r => r.confirmed === "yes" && (r.tx.credit || 0) > 0 && r.confirmedHach !== "X");
     if (!confirmedIn.length) { alert("Không có giao dịch tiền vào đã xác nhận để xuất UNT."); return; }
     const header = ["Hiển thị trên sổ", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Nộp vào TK", "Mở tại NH", "Lý do thu", "Diễn giải lý do thu ", "Nhân viên thu", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Đối tượng", "Khoản mục CP", "Đơn vị", "Đối tượng THCP", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Mã thống kê", ""];
     const data = [header];
@@ -995,7 +998,10 @@ function exportUNT(rows, coName, bankAcct) {
 
 function exportUNC(rows, coName, bankAcct) {
   try {
-    const confirmedOut = rows.filter(r => r.confirmed === "yes" && (r.tx.debit || 0) > 0);
+    // Dòng bên kia của 1 giao dịch chuyển khoản nội bộ (hạch toán = "X") chỉ là placeholder tự động
+    // đánh dấu — bên đã bấm xác nhận nội bộ đã hạch toán đủ cả 2 vế bằng mã TK thật rồi, đưa dòng "X"
+    // này vào UNC sẽ ghi trùng 1 lần nữa nên phải loại bỏ.
+    const confirmedOut = rows.filter(r => r.confirmed === "yes" && (r.tx.debit || 0) > 0 && r.confirmedHach !== "X");
     if (!confirmedOut.length) { alert("Không có giao dịch tiền ra đã xác nhận để xuất UNC."); return; }
     const header = ["Hiển thị trên sổ", "Phương thức thanh toán", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Tài khoản chi", "Mở tại NH", "Nội dung thanh toán", "Diễn giải nội dung thanh toán", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Tài khoản nhận", "Tên NH nhận", "Người lĩnh tiền", "Số CMND", "Ngày cấp CMND", "Nơi cấp CMND", "Nhân viên", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Mã đối tượng (Chi tiết)", "Khoản mục chi phí", "Đơn vị", "ĐT tập hợp chi phí", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Chi phí không hợp lý", "Mã thống kê", "Diễn giải (Thuế)", "TK thuế GTGT", "Tiền thuế GTGT", "% thuế GTGT", "Tỷ lệ tính thuế (Thuế suất KHAC)", "Giá trị HHDV chưa thuế", "Mẫu số hóa đơn", "Ký hiệu hóa đơn", "Số hóa đơn", "Ngày hóa đơn", "Nhóm HHDV mua vào", "Mã NCC", "Tên NCC", "Mã số thuế NCC", ""];
     const data = [header];
@@ -4186,13 +4192,20 @@ function ConfirmScreen({
       fontSize: 13
     }
   }, "\u0110\xF3ng")))),
+  /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "sticky",
+      top: 0,
+      zIndex: 70,
+      background: "#f0f2f5"
+    }
+  },
   allAccounts.length > 1 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap",
       padding: "8px 12px",
       background: "#e8f4fd",
-      borderBottom: "2px solid #b3d4e8",
-      position: "sticky", top: 0, zIndex: 70
+      borderBottom: "2px solid #b3d4e8"
     }
   }, /*#__PURE__*/React.createElement("span", {style:{fontSize:11,color:"#456",fontWeight:500,marginRight:4}},
       "\uD83D\uDCCA Sao k\u00ea:"
@@ -4248,9 +4261,6 @@ function ConfirmScreen({
   ),
   /*#__PURE__*/React.createElement("div", {
     style: {
-      position: "sticky",
-      top: accountsWithSession.length > 1 ? 44 : 0,
-      zIndex: 60,
       background: "#f0f2f5",
       paddingBottom: 8,
       marginBottom: "0.5rem",
@@ -4422,7 +4432,7 @@ function ConfirmScreen({
       color: "var(--text3)",
       alignSelf: "center"
     }
-  }, filtered.length, "/", rows.length))), /*#__PURE__*/React.createElement("div",null,
+  }, filtered.length, "/", rows.length)))), /*#__PURE__*/React.createElement("div",null,
 internalModalFor&&internalModalRow&&React.createElement("div",{
   style:{position:"fixed",inset:0,background:"rgba(0,0,0,.55)",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center",padding:20},
   onClick:closeInternalModal},
