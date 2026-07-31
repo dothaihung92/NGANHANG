@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.2";
+const APP_VERSION = "2026.07.05.3";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3726,7 +3726,9 @@ function ConfirmScreen({
   const loadInternalCandidates = (rowId, accId) => {
     if(!accId||!rowId){setInternalModalCandidates([]);return;}
     const txRow=rows.find(r=>r.id===rowId); if(!txRow)return;
-    const oRows=getOtherRows(accId), txDate=parseVNDateI(txRow.tx.date);
+    // Bên này NHẬN tiền (Có) → bên TK kia phải là RÚT tiền (Nợ), và ngược lại — 2 vế 1 giao dịch nội bộ luôn ngược dấu nhau
+    const myIsCredit = (txRow.tx.credit||0) > 0;
+    const oRows=getOtherRows(accId).filter(o => myIsCredit ? (o.tx.debit||0) > 0 : (o.tx.credit||0) > 0), txDate=parseVNDateI(txRow.tx.date);
     const tok=s=>s.toUpperCase().replace(/[^A-Z0-9]/g," ").split(" ").filter(t=>t.length>=3);
     const myT=new Set(tok((txRow.tx.desc||"").toUpperCase()));
     const sc=o=>{const ot=tok(o.tx.desc||"");let sh=0;for(const t of ot)if(myT.has(t))sh++;let s=myT.size>0?(sh/myT.size)*60:0;if(txDate&&o.tx.date){const d=Math.abs((txDate-parseVNDateI(o.tx.date))/86400000);s+=d===0?40:d<=1?35:d<=3?25:d<=7?15:d<=30?5:0;}return s;};
