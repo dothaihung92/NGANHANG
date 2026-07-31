@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.4";
+const APP_VERSION = "2026.07.05.5";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3721,7 +3721,9 @@ function ConfirmScreen({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [focusIdx, filtered, pickerFor]);
-  const parseVNDateI = d => { if(!d)return null; const m=String(d).match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/); return m?new Date(m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")):new Date(d); };
+  // Bỏ phần giờ nếu có (VD sao kê VietinBank ghi "15-07-2025 08:59:05") trước khi so khớp ngày —
+  // nếu không, regex ngày sẽ không khớp và bị fallback sang new Date() (hiểu sai dd-mm-yyyy) → GD bị loại nhầm.
+  const parseVNDateI = d => { if(!d)return null; const s=String(d).trim().split(/\s+/)[0]; const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/); return m?new Date(m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")):new Date(d); };
   const getOtherRows = accId => { const k=String(accId); if(rowsCache.current[k]&&rowsCache.current[k].length>0)return rowsCache.current[k]; const ls=accId?co.id+"_"+accId:co.id; const s=LS.get("session_"+ls); if(s&&s.results){rowsCache.current[k]=s.results;return s.results;} return []; };
   const loadInternalCandidates = (rowId, accId) => {
     if(!accId||!rowId){setInternalModalCandidates([]);return;}
