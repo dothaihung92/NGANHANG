@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.35";
+const APP_VERSION = "2026.07.05.36";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -659,8 +659,10 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
   }
 
   // ── Tầng 2: Khớp số tiền trong pool đúng loại — CHỈ GỢI Ý, không tự xác nhận ──
+  // Chạy cho TẤT CẢ dòng, kể cả dòng đã có t1_dict — vì từ điển có thể khớp NHẦM công ty (keyword
+  // học sai), nên vẫn cần các gợi ý số tiền/tên để người dùng đối chiếu và tự chọn đúng.
   onProgress("Tầng 2/3: Khớp số tiền với hoá đơn...");
-  for (const r of results.filter(x => !x.t1_dict)) {
+  for (const r of results) {
     const pool = getPool(r.tx);
     const amt = getAmt(r.tx);
     if (!amt || amt < 100) continue;
@@ -738,7 +740,7 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
 
   // ── Tầng 3: Gợi ý khớp tên công ty (fuzzy ≥50%, không trùng MST) ──
   onProgress("Tầng 3/3: Dò tên công ty gần khớp...");
-  for (const r of results.filter(x => !x.t1_dict)) {
+  for (const r of results) {
     const pool = getPool(r.tx);
     const descN = normVN(r.tx.desc);
     const SKIP = new Set(["THANH", "TOAN", "HANG", "TIEN", "NGAY", "CTY", "TNHH", "MTV", "CONG", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "IB", "GD", "HD", "TT"]);
@@ -775,7 +777,7 @@ function rematchPending(rows, invDV, invDR) {
   const getAmt = tx => Math.max(tx.debit || 0, tx.credit || 0);
   const SKIP = new Set(["THANH", "TOAN", "HANG", "TIEN", "NGAY", "CTY", "TNHH", "MTV", "CONG", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "IB", "GD", "HD", "TT"]);
   return rows.map(r => {
-    if (r.confirmed === "yes" || r.t1_dict) return r;
+    if (r.confirmed === "yes") return r;
     const pool = getPool(r.tx);
     const amt = getAmt(r.tx);
     let t2_nameAmt = null, invMatches = [];
@@ -5270,7 +5272,7 @@ function ConfirmRow({
       fontSize: 10,
       color: "var(--green-d)"
     }
-  }, "T1-T\u1EEB \u0111i\u1EC3n \xB7 Kh\u1EDBp 100% \u2713")), !r.t1_dict && (r.invMatches && r.invMatches.length > 0 || r.nameMatches && r.nameMatches.length > 0 || invSuggestions.length > 0) && /*#__PURE__*/React.createElement("div", {
+  }, "T1-T\u1EEB \u0111i\u1EC3n \xB7 Kh\u1EDBp 100% \u2713")), (r.invMatches && r.invMatches.length > 0 || r.nameMatches && r.nameMatches.length > 0 || invSuggestions.length > 0) && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
