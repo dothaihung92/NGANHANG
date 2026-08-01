@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.31";
+const APP_VERSION = "2026.07.05.32";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3818,14 +3818,14 @@ function ConfirmScreen({
         return;
       }
       if(e.altKey&&(e.key==="t"||e.key==="T")){e.preventDefault();if(filtered[focusIdx])overrideRow(filtered[focusIdx].id,"","Ti\u1EC1n m\u1EB7t","","1111");return;}
+      // Ctrl/Cmd+A = Chọn tất cả (chờ xử lý) — chạy trước khi bị chặn bởi input/textarea để dùng được
+      // ngay cả khi đang gõ trong ô tìm kiếm (VD sau khi Ctrl+F vào ô lọc).
+      if((e.ctrlKey||e.metaKey)&&(e.key==="a"||e.key==="A")){e.preventDefault();toggleBulkSelectAll();return;}
       if(pickerFor)return;
       const tag=e.target.tagName;
       if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT")return;
       if((e.ctrlKey||e.metaKey)&&e.key==="z"&&!e.shiftKey){e.preventDefault();undo();return;}
       if((e.ctrlKey||e.metaKey)&&(e.key==="y"||(e.key==="z"&&e.shiftKey))){e.preventDefault();redo();return;}
-      // Ctrl/Cmd+A = Chọn tất cả (chờ xử lý) — chỉ khi không ở trong ô nhập liệu (ở trên đã return sớm),
-      // để không đè lên hành vi chọn hết văn bản mặc định của trình duyệt trong input/textarea.
-      if((e.ctrlKey||e.metaKey)&&(e.key==="a"||e.key==="A")){e.preventDefault();toggleBulkSelectAll();return;}
       // Alt+G = Gắn (assign selected invoice in picker)
       if (e.altKey && (e.key === "g" || e.key === "G")) {
         e.preventDefault();
@@ -3834,7 +3834,10 @@ function ConfirmScreen({
       }
       if (e.key === "Enter" || e.key === "ArrowRight") {
         e.preventDefault();
-        if (filtered[focusIdx]) confirmRow(filtered[focusIdx].id, "yes", null, null, null, "");
+        // Nếu đang chọn nhiều dòng hàng loạt → Enter xác nhận cả lô (giống nút "Xác nhận đã chọn"),
+        // thay vì chỉ xử lý 1 dòng đang focus như trước.
+        if (bulkSelected.size > 1) { bulkConfirmSelected(); }
+        else if (filtered[focusIdx]) confirmRow(filtered[focusIdx].id, "yes", null, null, null, "");
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
         keyboardNavRef.current = true;
