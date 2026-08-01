@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.40";
+const APP_VERSION = "2026.07.05.41";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3883,7 +3883,12 @@ function ConfirmScreen({
     const myAmt = Math.max(txRow.tx.debit||0, txRow.tx.credit||0);
     const txDate = parseVNDateI(txRow.tx.date);
     const oRows = getOtherRows(accId).filter(o => {
-      if (o.confirmed) return false;
+      // Chỉ loại các dòng đã CHẮC CHẮN xử lý xong (đã ghép nội bộ, hoặc đã gắn đúng hoá đơn/MST) —
+      // KHÔNG loại các dòng chỉ mới bị gán tạm "Tiền mặt" (không MST, không phải nội bộ), vì đây
+      // thường là trường hợp người dùng bấm Alt+T do lúc đó chưa có gợi ý, thực chất vẫn có thể là
+      // chuyển khoản nội bộ và cần được gợi ý lại để sửa.
+      if (o.confirmed === "yes" && (o.isInternal || o.confirmedMST)) return false;
+      if (o.confirmed === "no") return false;
       if (myIsCredit ? !((o.tx.debit||0) > 0) : !((o.tx.credit||0) > 0)) return false;
       const oAmt = Math.max(o.tx.debit||0, o.tx.credit||0);
       if (!(myAmt > 0 && oAmt > 0 && Math.abs(oAmt - myAmt) < 1)) return false;
