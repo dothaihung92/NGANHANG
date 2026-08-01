@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.19";
+const APP_VERSION = "2026.07.05.20";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -766,6 +766,44 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
   }
   await new Promise(r => setTimeout(r, 100));
   return results;
+}
+
+// Dò lại gợi ý (Tầng 2 + Tầng 3) cho các dòng CHƯA khớp bằng danh sách hoá đơn HIỆN TẠI.
+// Cần thiết vì gợi ý (t2_nameAmt/invMatches/nameMatches) chỉ được tính 1 lần lúc dán sao kê —
+// nếu hoá đơn được bổ sung SAU đó, các dòng cũ sẽ không tự có gợi ý mới cho tới khi dò lại.
+function rematchPending(rows, invDV, invDR) {
+  const invDVm = (invDV||[]).map(i => ({...i, loai: "DAUVAO"}));
+  const invDRm = (invDR||[]).map(i => ({...i, loai: "DAURA"}));
+  const getPool = tx => (tx.credit > 0 ? invDRm : invDVm);
+  const getAmt = tx => Math.max(tx.debit || 0, tx.credit || 0);
+  const SKIP = new Set(["THANH", "TOAN", "HANG", "TIEN", "NGAY", "CTY", "TNHH", "MTV", "CONG", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "IB", "GD", "HD", "TT"]);
+  return rows.map(r => {
+    if (r.confirmed === "yes" || r.t1_dict) return r;
+    const pool = getPool(r.tx);
+    const amt = getAmt(r.tx);
+    let t2_nameAmt = null, invMatches = [];
+    if (amt >= 100) {
+      const amtHits = pool.filter(i => { const t = i.tong || 0; if (t < 100) return false; const diff = Math.abs(t - amt); return diff === 0 || diff / amt <= 0.02; });
+      amtHits.sort((a, b) => { const diffA = Math.abs((a.tong||0) - amt), diffB = Math.abs((b.tong||0) - amt); return diffA - diffB; });
+      const seen = new Set();
+      const deduped = amtHits.filter(i => { const key = (i.mst || i.ten_cty || i.id) + "_" + Math.round(i.tong || 0); if (seen.has(key)) return false; seen.add(key); return true; });
+      t2_nameAmt = deduped[0] || null;
+      invMatches = deduped.slice(0, 4);
+    }
+    const descN = normVN(r.tx.desc);
+    const descWords = descN.split(" ").filter(w => w.length >= 3 && !SKIP.has(w));
+    let nameMatches = [];
+    if (descWords.length) {
+      const seenMST = new Set();
+      nameMatches = pool.filter(i => {
+        if (!i.ten_cty) return false;
+        const tnWords = normVN(i.ten_cty).split(" ").filter(w => w.length >= 3 && !SKIP.has(w));
+        if (!tnWords.length) return false;
+        return (tnWords.filter(w => descWords.includes(w)).length / tnWords.length) >= 0.5;
+      }).filter(i => { const key = i.mst || i.ten_cty; if (seenMST.has(key)) return false; seenMST.add(key); return true; }).slice(0, 5);
+    }
+    return { ...r, t2_nameAmt, invMatches, nameMatches };
+  });
 }
 async function learnFromResults(results, coDict, coId) {
   // Only learn from manually confirmed (not auto-confirmed 100%)
@@ -4393,6 +4431,14 @@ function ConfirmScreen({
     onClick:()=>setAddMode(m=>!m),
     style:{borderColor: addMode ? "var(--green)" : undefined, color: addMode ? "var(--green)" : undefined}
   }, "➕ Thêm sao kê"),/*#__PURE__*/React.createElement("button",{
+    className:"btn btn-outline",
+    title:"Dò lại gợi ý khớp hoá đơn cho các dòng chưa xác nhận (dùng khi vừa bổ sung thêm hoá đơn)",
+    onClick:()=>{
+      const nx = rematchPending(rows, invDV, invDR);
+      setRowsH(nx);
+      if (showToast) showToast("✓ Đã dò lại gợi ý theo hoá đơn hiện tại", "ok");
+    }
+  }, "🔄 Dò lại gợi ý"),/*#__PURE__*/React.createElement("button",{
     className:"btn btn-outline",
     onClick:()=>exportExcel(rows,co&&co.name||"export",[...coDict,...globalDict])
   }, "\uD83D\uDCE5 Xu\u1EA5t Excel"),/*#__PURE__*/React.createElement("button",{
