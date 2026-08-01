@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.14";
+const APP_VERSION = "2026.07.05.15";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4598,24 +4598,28 @@ function ConfirmScreen({
       placeholder: "MST",
       value: bulkForm.mst,
       onChange: e => setBulkForm(f => ({ ...f, mst: e.target.value })),
+      onKeyDown: e => { if (e.key === "Enter") bulkConfirmSelected(); },
       style: { width: 110, height: 28, fontSize: 12 }
     }),
     /*#__PURE__*/React.createElement("input", {
       placeholder: "T\xEAn c\xF4ng ty",
       value: bulkForm.ten_cty,
       onChange: e => setBulkForm(f => ({ ...f, ten_cty: e.target.value })),
+      onKeyDown: e => { if (e.key === "Enter") bulkConfirmSelected(); },
       style: { width: 180, height: 28, fontSize: 12 }
     }),
     /*#__PURE__*/React.createElement("input", {
       placeholder: "H\u1EA1ch to\xE1n (VD 131, 6427...)",
       value: bulkForm.hach,
       onChange: e => setBulkForm(f => ({ ...f, hach: e.target.value })),
+      onKeyDown: e => { if (e.key === "Enter") bulkConfirmSelected(); },
       style: { width: 150, height: 28, fontSize: 12 }
     }),
     /*#__PURE__*/React.createElement("input", {
       placeholder: "Keyword d\xF9ng chung (t\xF9y ch\u1ECDn)",
       value: bulkForm.kw,
       onChange: e => setBulkForm(f => ({ ...f, kw: e.target.value })),
+      onKeyDown: e => { if (e.key === "Enter") bulkConfirmSelected(); },
       style: { width: 170, height: 28, fontSize: 12 }
     }),
     /*#__PURE__*/React.createElement("button", {
