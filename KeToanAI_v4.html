@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.20";
+const APP_VERSION = "2026.07.05.21";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3290,6 +3290,12 @@ function ConfirmScreen({
   React.useEffect(() => { currentInvRef.current = {invDV: invDV||[], invDR: invDR||[]}; }, [invDV, invDR]);
   React.useEffect(() => { currentRowsRef.current = rows; }, [rows]);
 
+  // Tự động dò lại gợi ý mỗi khi danh sách hoá đơn (invDV/invDR) đổi — VD: mở lại 1 phiên cũ
+  // sau khi hoá đơn công ty đã được bổ sung thêm ở lần xử lý khác. Không cần bấm nút thủ công.
+  React.useEffect(() => {
+    setRows(cur => rematchPending(cur, invDV, invDR));
+  }, [invDV, invDR]);
+
   // Lưu ngay khi đóng tab/cửa sổ — lưu TẤT CẢ các tab tài khoản
   React.useEffect(() => {
     const handler = () => {
@@ -3338,7 +3344,7 @@ function ConfirmScreen({
     // Check in-memory cache first (preserves unsaved work)
     const applyP=arr=>{const p=crossTabPending.current[cacheKey];if(!p||!Object.keys(p).length)return arr;const mg=arr.map(r=>p[r.id]?{...r,...p[r.id]}:r);delete crossTabPending.current[cacheKey];return mg;};
     if (rowsCache.current[cacheKey] && rowsCache.current[cacheKey].length > 0) {
-      const fr=applyP(rowsCache.current[cacheKey]).map(r=>({...r}));rowsCache.current[cacheKey]=fr;setRows(fr);
+      const fr=rematchPending(applyP(rowsCache.current[cacheKey]).map(r=>({...r})),invDV,invDR);rowsCache.current[cacheKey]=fr;setRows(fr);
       currentTabIdRef.current = accId; // cập nhật ref ngay, tránh lưu nhầm tab
       setActiveTabAccId(accId);
       setFilter("all");
@@ -3370,7 +3376,7 @@ function ConfirmScreen({
           return sp2[accId] || Object.values(sp2).find(v=>v&&v.trim()) || "";
         } catch(e) { return ""; }
       })();
-      const loaded = autoFixZeroAmounts(sanitizeRows(rawLoaded), rawFallback, s.currency||"VND");
+      const loaded = rematchPending(autoFixZeroAmounts(sanitizeRows(rawLoaded), rawFallback, s.currency||"VND"), invDV, invDR);
       rowsCache.current[String(accId)] = loaded;
       currentTabIdRef.current = accId;
       setRows(loaded);
@@ -4431,14 +4437,6 @@ function ConfirmScreen({
     onClick:()=>setAddMode(m=>!m),
     style:{borderColor: addMode ? "var(--green)" : undefined, color: addMode ? "var(--green)" : undefined}
   }, "➕ Thêm sao kê"),/*#__PURE__*/React.createElement("button",{
-    className:"btn btn-outline",
-    title:"Dò lại gợi ý khớp hoá đơn cho các dòng chưa xác nhận (dùng khi vừa bổ sung thêm hoá đơn)",
-    onClick:()=>{
-      const nx = rematchPending(rows, invDV, invDR);
-      setRowsH(nx);
-      if (showToast) showToast("✓ Đã dò lại gợi ý theo hoá đơn hiện tại", "ok");
-    }
-  }, "🔄 Dò lại gợi ý"),/*#__PURE__*/React.createElement("button",{
     className:"btn btn-outline",
     onClick:()=>exportExcel(rows,co&&co.name||"export",[...coDict,...globalDict])
   }, "\uD83D\uDCE5 Xu\u1EA5t Excel"),/*#__PURE__*/React.createElement("button",{
