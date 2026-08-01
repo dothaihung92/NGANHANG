@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.24";
+const APP_VERSION = "2026.07.05.25";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3759,6 +3759,12 @@ function ConfirmScreen({
       if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
         e.preventDefault();
         if (searchInputRef.current) { searchInputRef.current.focus(); searchInputRef.current.select(); }
+        return;
+      }
+      // Ctrl/Cmd+S = Lưu & học, thay vì mở hộp thoại "Lưu trang" mặc định của trình duyệt
+      if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S")) {
+        e.preventDefault();
+        handleSaveAndLearn();
         return;
       }
       // Fix 2: Esc only closes picker or edit — never navigates away
