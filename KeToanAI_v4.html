@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.39";
+const APP_VERSION = "2026.07.05.40";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3956,6 +3956,7 @@ function ConfirmScreen({
     const myLabel=activeTabAcc?activeTabAcc.label:"",myCur=activeTabAcc?activeTabAcc.currency:"";
     const lT=`\u21D4 N\u1ED9i b\u1ED9 \u2013 ${isSkip?"Chuy\u1EC3n sang":"Nh\u1EADn t\u1EEB"} ${accLabel} (${accCurrency})`;
     const lO=`\u21D4 N\u1ED9i b\u1ED9 \u2013 ${isSkip?"Nh\u1EADn t\u1EEB":"Chuy\u1EC3n sang"} ${myLabel} (${myCur})`;
+    const myRow=rows.find(r=>r.id===id);
     setRowsH(prev=>prev.map(r=>r.id!==id?r:{...r,confirmed:"yes",confirmedMST:"",confirmedName:lT,
       confirmedLoai:r.tx.credit>0?"DAURA":"DAUVAO",confirmedHach:hach||"1121",
       manualConfirm:true,isInternal:true,internalAccId:accId,internalAccLabel:accLabel,internalSkip:isSkip}));
@@ -3967,7 +3968,33 @@ function ConfirmScreen({
       if(rowsCache.current[ck]&&rowsCache.current[ck].length>0)
         rowsCache.current[ck]=rowsCache.current[ck].map(r=>r.id===otherRowId?{...r,...upd}:r);
       const lk=accId?co.id+"_"+accId:co.id,s=LS.get("session_"+lk);
-      if(s&&s.results){const ur=s.results.map(r=>r.id===otherRowId?{...r,...upd}:r);LS.set("session_"+lk,{...s,results:ur});rowsCache.current[ck]=ur;}
+      if(s&&s.results){
+        let matched=false;
+        let ur=s.results.map(r=>{
+          if(r.id===otherRowId){matched=true;return{...r,...upd};}
+          return r;
+        });
+        // N\u1EBFu kh\u00F4ng t\u00ECm th\u1EA5y \u0111\u00FAng ID (VD d\u1EEF li\u1EC7u TK kia \u0111\u00E3 \u0111\u01B0\u1EE3c x\u1EED l\u00FD l\u1EA1i sau khi g\u1EE3i \u00FD \u0111\u01B0\u1EE3c t\u00EDnh,
+        // khi\u1EBFn ID c\u0169 kh\u00F4ng c\u00F2n kh\u1EDBp) \u2014 d\u00F2 l\u1EA1i theo \u0110\u00DANG s\u1ED1 ti\u1EC1n + ng\u01B0\u1EE3c d\u1EA5u + g\u1EA7n ng\u00E0y nh\u1EA5t, \u0111\u1EC3
+        // tr\u00E1nh im l\u1EB7ng b\u1ECF qua khi\u1EBFn b\u00EAn kia kh\u00F4ng bao gi\u1EDD \u0111\u01B0\u1EE3c \u0111\u00E1nh d\u1EA5u X.
+        if(!matched&&myRow){
+          const myAmt=Math.max(myRow.tx.debit||0,myRow.tx.credit||0);
+          const myIsCredit=(myRow.tx.credit||0)>0;
+          const cands=s.results.filter(r=>{
+            if(r.confirmed)return false;
+            if(myIsCredit?!((r.tx.debit||0)>0):!((r.tx.credit||0)>0))return false;
+            return Math.abs(Math.max(r.tx.debit||0,r.tx.credit||0)-myAmt)<1;
+          });
+          if(cands.length){
+            const pick=cands[0].id;
+            ur=s.results.map(r=>r.id===pick?{...r,...upd}:r);
+            matched=true;
+          }
+        }
+        LS.set("session_"+lk,{...s,results:ur});
+        rowsCache.current[ck]=ur;
+        if(!matched&&showToast)showToast("\u26A0 Kh\u00F4ng t\u00ECm th\u1EA5y GD t\u01B0\u01A1ng \u1EE9ng \u1EDF "+accLabel+" \u0111\u1EC3 \u0111\u00E1nh d\u1EA5u X \u2014 h\u00E3y ki\u1EC3m tra l\u1EA1i th\u1EE7 c\u00F4ng","warn");
+      }
     }
   };
 
