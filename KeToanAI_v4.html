@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.13";
+const APP_VERSION = "2026.07.05.14";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -5019,7 +5019,14 @@ function ConfirmRow({
 
   return /*#__PURE__*/React.createElement("div", {
     "data-row": "1",
-    onClick: onFocus,
+    onClick: e => {
+      onFocus();
+      // Nhấn vào vùng trống của dòng (không phải nút/ô nhập) cũng chọn luôn để xác nhận hàng loạt,
+      // khỏi phải nhắm trúng đúng ô checkbox nhỏ ở góc trái.
+      if (onToggleSelect && !e.target.closest("button, input, select, textarea, a, label")) {
+        onToggleSelect(r.id);
+      }
+    },
     style: {
       position: "relative",
       border: hasMismatch ? "2px solid #dc2626" : isSelected ? "1px solid #d4a017" : `1px solid ${isFocused ? "#1a5276" : borderColor}`,
