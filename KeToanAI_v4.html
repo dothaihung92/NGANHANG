@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.26";
+const APP_VERSION = "2026.07.05.27";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4647,7 +4647,7 @@ function ConfirmScreen({
       color: "var(--blue)",
       fontWeight: 500
     }
-  }, "D\xF2ng ", focusIdx + 1, "/", filtered.length)), bulkSelected.size > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "D\xF2ng ", focusIdx + 1, "/", filtered.length)), /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#fffbe6",
       border: "1px solid #f0d878",
@@ -4691,17 +4691,20 @@ function ConfirmScreen({
     }),
     /*#__PURE__*/React.createElement("button", {
       className: "btn btn-green",
-      style: { height: 28, padding: "0 12px", fontSize: 12 },
+      disabled: bulkSelected.size === 0,
+      style: { height: 28, padding: "0 12px", fontSize: 12, opacity: bulkSelected.size === 0 ? 0.5 : 1, cursor: bulkSelected.size === 0 ? "not-allowed" : "pointer" },
       onClick: bulkConfirmSelected
     }, "\u2713 X\xE1c nh\u1EADn \u0111\xE3 ch\u1ECDn"),
     /*#__PURE__*/React.createElement("button", {
       className: "btn btn-outline",
-      style: { height: 28, padding: "0 12px", fontSize: 12, color: "var(--red)", borderColor: "#f5c0c0" },
+      disabled: bulkSelected.size === 0,
+      style: { height: 28, padding: "0 12px", fontSize: 12, color: "var(--red)", borderColor: "#f5c0c0", opacity: bulkSelected.size === 0 ? 0.5 : 1, cursor: bulkSelected.size === 0 ? "not-allowed" : "pointer" },
       onClick: bulkRejectSelected
     }, "Kh\xF4ng kh\u1EDBp \u0111\xE3 ch\u1ECDn"),
     /*#__PURE__*/React.createElement("button", {
       className: "btn btn-outline",
-      style: { height: 28, padding: "0 12px", fontSize: 12 },
+      disabled: bulkSelected.size === 0,
+      style: { height: 28, padding: "0 12px", fontSize: 12, opacity: bulkSelected.size === 0 ? 0.5 : 1, cursor: bulkSelected.size === 0 ? "not-allowed" : "pointer" },
       onClick: clearBulkSelection
     }, "B\u1ECF ch\u1ECDn")
   )), /*#__PURE__*/React.createElement("div",null,
