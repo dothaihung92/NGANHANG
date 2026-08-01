@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.33";
+const APP_VERSION = "2026.07.05.34";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4329,7 +4329,8 @@ function ConfirmScreen({
       onHachChange: (k, v) => setPickerHach(h => ({
         ...h,
         [k]: v
-      }))
+      })),
+      onCopyFill: () => window.dispatchEvent(new CustomEvent("fillRowEdit", { detail: { rowId: pickerFor, inv } }))
     });
   })))), /*#__PURE__*/React.createElement("div", {
     style: {
@@ -4855,12 +4856,14 @@ function PickerInvRow({
   defaultHach,
   onToggle,
   onAssign,
-  onHachChange
+  onHachChange,
+  onCopyFill
 }) {
   const [mstCopied, setMstCopied] = useState(false);
   const key = inv.id || inv.so_hd + inv.ngay;
   const copyMST = e => {
     e.stopPropagation();
+    if (onCopyFill) onCopyFill();
     navigator.clipboard && navigator.clipboard.writeText(inv.mst || "").then(() => {
       setMstCopied(true);
       setTimeout(() => setMstCopied(false), 1500);
@@ -5023,6 +5026,15 @@ function ConfirmRow({
     window.addEventListener("closeEditMode", h);
     return () => window.removeEventListener("closeEditMode", h);
   }, []);
+  // Click "copy MST" trong khung Chọn hoá đơn → đổ luôn thông tin cty vào form "Nhập khác" của
+  // đúng dòng đang mở picker (giống hệt bấm gợi ý), không cần đóng picker rồi tự gõ lại.
+  React.useEffect(() => {
+    const h = e => {
+      if (e.detail && e.detail.rowId === r.id) fillEdit(e.detail.inv);
+    };
+    window.addEventListener("fillRowEdit", h);
+    return () => window.removeEventListener("fillRowEdit", h);
+  });
   const [editMode, setEditMode] = useState(false);
   const [addDictMode, setAddDictMode] = useState(false);
   const [editMST, setEditMST] = useState("");
