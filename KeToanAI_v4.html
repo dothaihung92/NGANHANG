@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.28";
+const APP_VERSION = "2026.07.05.29";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3813,6 +3813,9 @@ function ConfirmScreen({
       if(tag==="INPUT"||tag==="TEXTAREA"||tag==="SELECT")return;
       if((e.ctrlKey||e.metaKey)&&e.key==="z"&&!e.shiftKey){e.preventDefault();undo();return;}
       if((e.ctrlKey||e.metaKey)&&(e.key==="y"||(e.key==="z"&&e.shiftKey))){e.preventDefault();redo();return;}
+      // Ctrl/Cmd+A = Chọn tất cả (chờ xử lý) — chỉ khi không ở trong ô nhập liệu (ở trên đã return sớm),
+      // để không đè lên hành vi chọn hết văn bản mặc định của trình duyệt trong input/textarea.
+      if((e.ctrlKey||e.metaKey)&&(e.key==="a"||e.key==="A")){e.preventDefault();toggleBulkSelectAll();return;}
       // Alt+G = Gắn (assign selected invoice in picker)
       if (e.altKey && (e.key === "g" || e.key === "G")) {
         e.preventDefault();
