@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.23";
+const APP_VERSION = "2026.07.05.24";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -5113,7 +5113,7 @@ function ConfirmRow({
   }), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
-      gridTemplateColumns: "1fr 320px 155px",
+      gridTemplateColumns: "minmax(240px,1fr) 460px 155px",
       gap: 10,
       alignItems: "start"
     }
@@ -5219,12 +5219,12 @@ function ConfirmRow({
   }, "T1-T\u1EEB \u0111i\u1EC3n \xB7 Kh\u1EDBp 100% \u2713")), !r.t1_dict && (r.invMatches && r.invMatches.length > 0 || r.nameMatches && r.nameMatches.length > 0 || invSuggestions.length > 0) && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
+      flexWrap: "wrap",
       gap: 14,
-      marginBottom: 6,
-      minHeight: 160
+      marginBottom: 6
     }
   }, invSuggestions.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: { flex: 1, minWidth: 220 }
+    style: { flex: "1 1 200px", minWidth: 200 }
   }, /*#__PURE__*/React.createElement("div", {
     style: { fontSize: 13, fontWeight: 600, color: "#7c3aed", marginBottom: 6 }
   }, "\uD83D\uDCA1 G\u1EE3i \xFD theo s\u1ED1 H\u0110:"), invSuggestions.map((inv, i) => {
@@ -5247,8 +5247,8 @@ function ConfirmRow({
     );
   })), r.invMatches && r.invMatches.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
-      flex: 1,
-      minWidth: 220
+      flex: "1 1 200px",
+      minWidth: 200
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -5319,8 +5319,8 @@ function ConfirmRow({
     }, diff === 0 ? "= Khop chinh xac" : "Lech " + fmt(diff, r.tx.currency) + " (" + diffPct + "%)"));
   })), r.nameMatches && r.nameMatches.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
-      flex: 1,
-      minWidth: 220
+      flex: "1 1 200px",
+      minWidth: 200
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
