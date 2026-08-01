@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.36";
+const APP_VERSION = "2026.07.05.37";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -743,7 +743,10 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
   for (const r of results) {
     const pool = getPool(r.tx);
     const descN = normVN(r.tx.desc);
-    const SKIP = new Set(["THANH", "TOAN", "HANG", "TIEN", "NGAY", "CTY", "TNHH", "MTV", "CONG", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "IB", "GD", "HD", "TT"]);
+    const SKIP = new Set(["THANH", "TOAN", "HANG", "TIEN", "NGAY", "CTY", "TNHH", "MTV", "CONG", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "IB", "GD", "HD", "TT",
+      // Các từ đầy đủ tương ứng với chữ viết tắt loại hình DN ở trên (VD hoá đơn ghi "TRÁCH NHIỆM HỮU HẠN"
+      // nhưng sao kê ngân hàng ghi tắt "TNHH") — bỏ qua cả 2 dạng để không làm loãng điểm khớp tên.
+      "TRACH", "NHIEM", "HUU", "HAN", "MOT", "VIEN", "DOANH", "NGHIEP"]);
     const descWords = descN.split(" ").filter(w => w.length >= 3 && !SKIP.has(w));
     if (!descWords.length) continue;
     const seenMST = new Set(); // dedup by MST
@@ -775,7 +778,10 @@ function rematchPending(rows, invDV, invDR) {
   const invDRm = (invDR||[]).map(i => ({...i, loai: "DAURA"}));
   const getPool = tx => (tx.credit > 0 ? invDRm : invDVm);
   const getAmt = tx => Math.max(tx.debit || 0, tx.credit || 0);
-  const SKIP = new Set(["THANH", "TOAN", "HANG", "TIEN", "NGAY", "CTY", "TNHH", "MTV", "CONG", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "IB", "GD", "HD", "TT"]);
+  const SKIP = new Set(["THANH", "TOAN", "HANG", "TIEN", "NGAY", "CTY", "TNHH", "MTV", "CONG", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "IB", "GD", "HD", "TT",
+      // Các từ đầy đủ tương ứng với chữ viết tắt loại hình DN ở trên (VD hoá đơn ghi "TRÁCH NHIỆM HỮU HẠN"
+      // nhưng sao kê ngân hàng ghi tắt "TNHH") — bỏ qua cả 2 dạng để không làm loãng điểm khớp tên.
+      "TRACH", "NHIEM", "HUU", "HAN", "MOT", "VIEN", "DOANH", "NGHIEP"]);
   return rows.map(r => {
     if (r.confirmed === "yes") return r;
     const pool = getPool(r.tx);
