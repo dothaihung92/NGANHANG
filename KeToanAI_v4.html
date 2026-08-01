@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.34";
+const APP_VERSION = "2026.07.05.35";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -637,14 +637,11 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
       }
     }
     const t1 = bs === 1 ? best : null; // Chỉ khớp ĐÚNG 100% keyword, không dùng fuzzy
-    // Auto-confirm if 100% dict match
-    const autoConfirm = bs === 1 && t1 ? {
-      confirmed: "yes",
-      confirmedMST: t1.mst,
-      confirmedName: t1.ten_cty,
-      confirmedLoai: tx.credit > 0 ? "DAURA" : "DAUVAO",
-      confirmedHach: t1.hach_toan || (tx.debit > 0 ? "331" : "131")
-    } : {
+    // Không tự động xác nhận nữa — kể cả khớp 100% từ điển cũng chỉ hiện gợi ý (t1_dict), người dùng
+    // phải tự bấm "✓ Đúng" để xác nhận. Tránh trường hợp từ khoá học nhầm khiến hạch toán tự động
+    // sai công ty mà người dùng không để ý (VD nội dung "CTY CHÂU BẢO HOÀNG" bị gán nhầm cho 1 công
+    // ty hoàn toàn khác trong từ điển).
+    const autoConfirm = {
       confirmed: null,
       confirmedMST: null,
       confirmedName: null,
