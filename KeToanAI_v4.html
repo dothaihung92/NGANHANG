@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.27";
+const APP_VERSION = "2026.07.05.28";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3426,6 +3426,19 @@ function ConfirmScreen({
   // ── Xác nhận hàng loạt: chọn nhiều dòng giống nhau rồi gán MST/hạch toán 1 lần ──
   const [bulkSelected, setBulkSelected] = useState(new Set());
   const [bulkForm, setBulkForm] = useState({ mst: "", ten_cty: "", hach: "", kw: "" });
+  // Tự động bỏ khỏi danh sách "đã chọn" các dòng vừa được xử lý xong (qua ✓ Đúng, Nội bộ, Tiền mặt,
+  // Alt+T,... hoặc bất kỳ đường nào khác) — tránh hiện "Đã chọn N dòng" sai lệch khi các dòng đó đã
+  // không còn nằm trong danh sách "Chờ" nữa.
+  React.useEffect(() => {
+    setBulkSelected(prev => {
+      if (!prev.size) return prev;
+      const next = new Set([...prev].filter(id => {
+        const r = rows.find(x => x.id === id);
+        return r && !r.confirmed;
+      }));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [rows]);
   const internalModalRow = internalModalFor ? rows.find(r => r.id === internalModalFor) : null;
   const internalModalOtherAccounts = (co.accounts||[]).filter(a => a.id !== activeTabAccId);
 
