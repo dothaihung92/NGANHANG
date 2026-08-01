@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.32";
+const APP_VERSION = "2026.07.05.33";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3697,7 +3697,10 @@ function ConfirmScreen({
     const allSelected = pendingIds.length > 0 && pendingIds.every(id => bulkSelected.has(id));
     setBulkSelected(allSelected ? new Set() : new Set(pendingIds));
   };
-  const clearBulkSelection = () => setBulkSelected(new Set());
+  const clearBulkSelection = () => {
+    setBulkSelected(new Set());
+    setBulkForm({ mst: "", ten_cty: "", hach: "", kw: "" });
+  };
   // Click 1 gợi ý trên dòng → đổ luôn MST/Tên công ty/Hạch toán vào khung "Đã chọn N dòng" phía trên,
   // giống hệt cách "Nhập khác" đổ vào form sửa của từng dòng — để áp dụng nhanh cho cả lô đang chọn.
   const fillBulkForm = (inv, defHach) => {
@@ -3797,7 +3800,8 @@ function ConfirmScreen({
           closePicker();
           return;
         }
-        if (bulkSelected.size > 0) {
+        const bulkFormHasText = bulkForm.mst || bulkForm.ten_cty || bulkForm.hach || bulkForm.kw;
+        if (bulkSelected.size > 0 || bulkFormHasText) {
           clearBulkSelection();
           return;
         }
@@ -3852,7 +3856,7 @@ function ConfirmScreen({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [focusIdx, filtered, pickerFor, bulkSelected, search]);
+  }, [focusIdx, filtered, pickerFor, bulkSelected, bulkForm, search]);
   // Bỏ phần giờ nếu có (VD sao kê VietinBank ghi "15-07-2025 08:59:05") trước khi so khớp ngày —
   // nếu không, regex ngày sẽ không khớp và bị fallback sang new Date() (hiểu sai dd-mm-yyyy) → GD bị loại nhầm.
   const parseVNDateI = d => { if(!d)return null; const s=String(d).trim().split(/\s+/)[0]; const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/); return m?new Date(m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")):new Date(d); };
