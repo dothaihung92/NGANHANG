@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.22";
+const APP_VERSION = "2026.07.05.23";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -5219,41 +5219,43 @@ function ConfirmRow({
   }, "T1-T\u1EEB \u0111i\u1EC3n \xB7 Kh\u1EDBp 100% \u2713")), !r.t1_dict && (r.invMatches && r.invMatches.length > 0 || r.nameMatches && r.nameMatches.length > 0 || invSuggestions.length > 0) && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      gap: 8,
-      marginBottom: 4
+      gap: 14,
+      marginBottom: 6,
+      minHeight: 160
     }
   }, invSuggestions.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: { flex: 1 }
+    style: { flex: 1, minWidth: 220 }
   }, /*#__PURE__*/React.createElement("div", {
-    style: { fontSize: 10, fontWeight: 500, color: "#7c3aed", marginBottom: 3 }
+    style: { fontSize: 13, fontWeight: 600, color: "#7c3aed", marginBottom: 6 }
   }, "\uD83D\uDCA1 G\u1EE3i \xFD theo s\u1ED1 H\u0110:"), invSuggestions.map((inv, i) => {
     const isSelected = r.confirmedMST === inv.mst && r.confirmedName === inv.ten_cty;
     return /*#__PURE__*/React.createElement("button", {
       key: "invsug"+i,
       onClick: () => fillEdit(inv),
-      style: { fontSize: 11, padding: "5px 7px", borderRadius: 6, border: "1px solid",
+      style: { fontSize: 13, padding: "10px 12px", borderRadius: 8, border: "1px solid",
         borderColor: isSelected ? "var(--purple)" : "#c4b0f0",
         background: isSelected ? "var(--purple-l)" : "#f9f5ff",
-        cursor: "pointer", marginBottom: 3, display: "block", width: "100%", textAlign: "left", lineHeight: 1.4 }
+        cursor: "pointer", marginBottom: 6, display: "block", width: "100%", textAlign: "left", lineHeight: 1.5 }
     },
-      /*#__PURE__*/React.createElement("div", { style: { fontWeight: 700, color: "#5b21b6", fontSize: 11, marginBottom: 2 } }, "H\u0110 #" + (inv.so_hd || "")),
-      /*#__PURE__*/React.createElement("div", { style: { fontWeight: 600, color: "var(--text)", fontSize: 11, wordBreak: "break-word", marginBottom: 2 } }, inv.ten_cty || "\u2014"),
-      inv.mst && /*#__PURE__*/React.createElement("div", { style: { fontSize: 10, color: "var(--blue)", fontFamily: "monospace", marginBottom: 2 } }, inv.mst),
-      /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 6, fontSize: 10, flexWrap: "wrap" } },
-        /*#__PURE__*/React.createElement("span", { style: { fontWeight: 600, color: "#7c3aed" } }, fmt(inv.tong, r.tx.currency)),
+      /*#__PURE__*/React.createElement("div", { style: { fontWeight: 700, color: "#5b21b6", fontSize: 13, marginBottom: 3 } }, "H\u0110 #" + (inv.so_hd || "")),
+      /*#__PURE__*/React.createElement("div", { style: { fontWeight: 600, color: "var(--text)", fontSize: 13, wordBreak: "break-word", marginBottom: 3 } }, inv.ten_cty || "\u2014"),
+      inv.mst && /*#__PURE__*/React.createElement("div", { style: { fontSize: 12, color: "var(--blue)", fontFamily: "monospace", marginBottom: 3 } }, inv.mst),
+      /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 8, fontSize: 12, flexWrap: "wrap" } },
+        /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, color: "#7c3aed" } }, fmt(inv.tong, r.tx.currency)),
         inv.ngay && /*#__PURE__*/React.createElement("span", { style: { color: "var(--text3)" } }, "H\u0110: " + inv.ngay)
       )
     );
   })), r.invMatches && r.invMatches.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
-      flex: 1
+      flex: 1,
+      minWidth: 220
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 10,
-      fontWeight: 500,
+      fontSize: 13,
+      fontWeight: 600,
       color: "var(--text2)",
-      marginBottom: 3
+      marginBottom: 6
     }
   }, "Khop so tien:"), r.invMatches.slice(0, 4).map((inv, i) => {
     const isSelected = r.confirmedMST === inv.mst && r.confirmedName === inv.ten_cty;
@@ -5263,41 +5265,41 @@ function ConfirmRow({
       key: i,
       onClick: () => fillEdit(inv),
       style: {
-        fontSize: 11,
-        padding: "5px 7px",
-        borderRadius: 6,
+        fontSize: 13,
+        padding: "10px 12px",
+        borderRadius: 8,
         border: "1px solid",
         borderColor: isSelected ? "var(--green)" : "var(--border)",
         background: isSelected ? "var(--green-l)" : "#fff",
         cursor: "pointer",
-        marginBottom: 3,
+        marginBottom: 6,
         display: "block",
         width: "100%",
         textAlign: "left",
-        lineHeight: 1.4
+        lineHeight: 1.5
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
         fontWeight: 600,
         color: isSelected ? "var(--green-d)" : "var(--text)",
-        fontSize: 11,
+        fontSize: 13,
         wordBreak: "break-word",
-        marginBottom: 2
+        marginBottom: 3
       }
     }, inv.ten_cty || "—"), /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 10,
+        fontSize: 12,
         color: "var(--blue)",
         fontFamily: "monospace",
-        marginBottom: 2
+        marginBottom: 3
       }
     }, inv.mst || ""), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
-        gap: 6,
-        fontSize: 10,
+        gap: 8,
+        fontSize: 12,
         flexWrap: "wrap",
-        marginBottom: 2
+        marginBottom: 3
       }
     }, /*#__PURE__*/React.createElement("span", {
       style: {
@@ -5310,21 +5312,22 @@ function ConfirmRow({
       }
     }, "H\u0110: ", inv.ngay)), /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 10,
-        fontWeight: 500,
+        fontSize: 12,
+        fontWeight: 600,
         color: diff === 0 ? "var(--green-d)" : diffPct <= 2 ? "var(--green-d)" : "var(--amber)"
       }
     }, diff === 0 ? "= Khop chinh xac" : "Lech " + fmt(diff, r.tx.currency) + " (" + diffPct + "%)"));
   })), r.nameMatches && r.nameMatches.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
-      flex: 1
+      flex: 1,
+      minWidth: 220
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 10,
-      fontWeight: 500,
+      fontSize: 13,
+      fontWeight: 600,
       color: "var(--blue)",
-      marginBottom: 3
+      marginBottom: 6
     }
   }, "Gan khop ten:"), r.nameMatches.slice(0, 6).map((inv, i) => {
     const isSelected = r.confirmedMST === inv.mst && r.confirmedName === inv.ten_cty;
@@ -5332,30 +5335,30 @@ function ConfirmRow({
       key: i,
       onClick: () => fillEdit(inv),
       style: {
-        fontSize: 11,
-        padding: "5px 7px",
-        borderRadius: 6,
+        fontSize: 13,
+        padding: "10px 12px",
+        borderRadius: 8,
         border: "1px solid",
         borderColor: isSelected ? "var(--blue)" : "var(--border)",
         background: isSelected ? "#ebf5fb" : "#fafeff",
         cursor: "pointer",
-        marginBottom: 3,
+        marginBottom: 6,
         display: "block",
         width: "100%",
         textAlign: "left",
-        lineHeight: 1.4
+        lineHeight: 1.5
       }
     }, /*#__PURE__*/React.createElement("div", {
       style: {
         fontWeight: 600,
         color: isSelected ? "var(--blue)" : "var(--text)",
-        fontSize: 11,
+        fontSize: 13,
         wordBreak: "break-word",
-        marginBottom: 2
+        marginBottom: 3
       }
     }, inv.ten_cty || "—"), /*#__PURE__*/React.createElement("div", {
       style: {
-        fontSize: 10,
+        fontSize: 12,
         color: "var(--blue)",
         fontFamily: "monospace"
       }
@@ -5385,7 +5388,7 @@ function ConfirmRow({
           background: internalSuggestion.dayDiff === 0 ? "#dcfce7" : "#fef9c3",
           color: internalSuggestion.dayDiff === 0 ? "#16a34a" : "#854d0e"
         }
-      }, internalSuggestion.dayDiff === 0 ? "C\xF9ng ng\xE0y" : "Lệch 1 ng\xE0y")
+      }, internalSuggestion.dayDiff === 0 ? "C\xF9ng ng\xE0y" : "Lệch " + Math.round(internalSuggestion.dayDiff) + " ng\xE0y")
     ),
     /*#__PURE__*/React.createElement("div", {
       style: { fontSize: 11, color: "#666", marginBottom: 6, wordBreak: "break-word" }
