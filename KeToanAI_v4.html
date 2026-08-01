@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.37";
+const APP_VERSION = "2026.07.05.38";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -750,20 +750,22 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
     const descWords = descN.split(" ").filter(w => w.length >= 3 && !SKIP.has(w));
     if (!descWords.length) continue;
     const seenMST = new Set(); // dedup by MST
-    const nameMatches = pool.filter(i => {
-      if (!i.ten_cty) return false;
-      const tn = normVN(i.ten_cty);
-      const tnWords = tn.split(" ").filter(w => w.length >= 3 && !SKIP.has(w));
-      if (!tnWords.length) return false;
+    // Tính điểm khớp rồi SẮP XẾP theo điểm giảm dần trước khi cắt lấy 5 — trước đây filter() giữ
+    // nguyên thứ tự trong pool, nên 1 công ty khớp ĐÚNG 100% có thể bị loại khỏi top 5 chỉ vì nó
+    // nằm sau các công ty khớp yếu hơn (chỉ trùng vài từ chung như "XÂY DỰNG") trong danh sách hoá đơn.
+    const nameMatches = pool.map(i => {
+      if (!i.ten_cty) return null;
+      const tnWords = normVN(i.ten_cty).split(" ").filter(w => w.length >= 3 && !SKIP.has(w));
+      if (!tnWords.length) return null;
       const hits = tnWords.filter(w => descWords.includes(w)).length;
       const score = hits / tnWords.length;
-      return score >= 0.5; // require at least 50% of company name words to match
-    }).filter(i => {
-      const key = i.mst || i.ten_cty; // deduplicate by MST
+      return score >= 0.5 ? { inv: i, score } : null; // require at least 50% of company name words to match
+    }).filter(Boolean).sort((a, b) => b.score - a.score).filter(x => {
+      const key = x.inv.mst || x.inv.ten_cty; // deduplicate by MST
       if (seenMST.has(key)) return false;
       seenMST.add(key);
       return true;
-    }).slice(0, 5);
+    }).slice(0, 5).map(x => x.inv);
     if (nameMatches.length) r.nameMatches = nameMatches;
   }
   await new Promise(r => setTimeout(r, 100));
@@ -800,12 +802,19 @@ function rematchPending(rows, invDV, invDR) {
     let nameMatches = [];
     if (descWords.length) {
       const seenMST = new Set();
-      nameMatches = pool.filter(i => {
-        if (!i.ten_cty) return false;
+      // Sắp xếp theo điểm khớp giảm dần trước khi cắt lấy 5 (xem giải thích trong runMatching).
+      nameMatches = pool.map(i => {
+        if (!i.ten_cty) return null;
         const tnWords = normVN(i.ten_cty).split(" ").filter(w => w.length >= 3 && !SKIP.has(w));
-        if (!tnWords.length) return false;
-        return (tnWords.filter(w => descWords.includes(w)).length / tnWords.length) >= 0.5;
-      }).filter(i => { const key = i.mst || i.ten_cty; if (seenMST.has(key)) return false; seenMST.add(key); return true; }).slice(0, 5);
+        if (!tnWords.length) return null;
+        const score = tnWords.filter(w => descWords.includes(w)).length / tnWords.length;
+        return score >= 0.5 ? { inv: i, score } : null;
+      }).filter(Boolean).sort((a, b) => b.score - a.score).filter(x => {
+        const key = x.inv.mst || x.inv.ten_cty;
+        if (seenMST.has(key)) return false;
+        seenMST.add(key);
+        return true;
+      }).slice(0, 5).map(x => x.inv);
     }
     return { ...r, t2_nameAmt, invMatches, nameMatches };
   });
