@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.29";
+const APP_VERSION = "2026.07.05.30";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3698,6 +3698,16 @@ function ConfirmScreen({
     setBulkSelected(allSelected ? new Set() : new Set(pendingIds));
   };
   const clearBulkSelection = () => setBulkSelected(new Set());
+  // Click 1 gợi ý trên dòng → đổ luôn MST/Tên công ty/Hạch toán vào khung "Đã chọn N dòng" phía trên,
+  // giống hệt cách "Nhập khác" đổ vào form sửa của từng dòng — để áp dụng nhanh cho cả lô đang chọn.
+  const fillBulkForm = inv => {
+    setBulkForm(f => ({
+      ...f,
+      mst: inv.mst || "",
+      ten_cty: inv.ten_cty || "",
+      hach: inv.hach_toan || f.hach || ""
+    }));
+  };
   const bulkConfirmSelected = () => {
     if (!bulkSelected.size) return;
     const mst = bulkForm.mst.trim();
@@ -4824,7 +4834,8 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     isFocused: idx === focusIdx,
     onFocus: () => setFocusIdx(idx),
     isSelected: bulkSelected.has(r.id),
-    onToggleSelect: toggleBulkSelect
+    onToggleSelect: toggleBulkSelect,
+    onFillBulk: fillBulkForm
   }))));
 }
 function PickerInvRow({
@@ -4996,7 +5007,8 @@ function ConfirmRow({
   isSelected,
   onToggleSelect,
   internalSuggestion,
-  onQuickInternal
+  onQuickInternal,
+  onFillBulk
 }) {
   // Close edit mode on global Esc event
   React.useEffect(() => {
@@ -5032,6 +5044,7 @@ function ConfirmRow({
     const defHach = r.tx.debit > 0 ? "331" : "131";
     setEditHach(inv.hach_toan || editHach || defHach);
     if (!editMode) setEditMode(true);
+    if (onFillBulk) onFillBulk(inv);
   };
 
   // Save single row only — pass hach, save global kw if provided
