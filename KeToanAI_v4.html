@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.17";
+const APP_VERSION = "2026.07.05.18";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3688,6 +3688,7 @@ function ConfirmScreen({
 
   const [focusIdx, setFocusIdx] = useState(0);
   const listRef = React.useRef(null);
+  const searchInputRef = React.useRef(null);
 
   // Only auto-scroll when navigating with keyboard (Arrow keys), not on mouse click
   const keyboardNavRef = React.useRef(false);
@@ -3710,6 +3711,12 @@ function ConfirmScreen({
   }, [focusIdx]);
   React.useEffect(() => {
     const handler = e => {
+      // Ctrl/Cmd+F focus vào ô tìm nội dung thay vì mở tìm kiếm mặc định của trình duyệt
+      if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
+        e.preventDefault();
+        if (searchInputRef.current) { searchInputRef.current.focus(); searchInputRef.current.select(); }
+        return;
+      }
       // Fix 2: Esc only closes picker or edit — never navigates away
       if (e.key === "Escape") {
         e.preventDefault();
@@ -4500,6 +4507,7 @@ function ConfirmScreen({
       padding: "5px 11px"
     }
   }, lb)), /*#__PURE__*/React.createElement("input", {
+    ref: searchInputRef,
     value: search,
     onChange: e => setSearch(e.target.value),
     placeholder: "\uD83D\uDD0D T\xECm n\u1ED9i dung, t\xEAn c\xF4ng ty...",
