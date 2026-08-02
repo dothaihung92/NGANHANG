@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.45";
+const APP_VERSION = "2026.07.05.46";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4945,7 +4945,8 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     onFocus: () => setFocusIdx(idx),
     isSelected: bulkSelected.has(r.id),
     onToggleSelect: toggleBulkSelect,
-    onFillBulk: fillBulkForm
+    onFillBulk: fillBulkForm,
+    searchTerm: search
   }))));
 }
 function PickerInvRow({
@@ -5120,7 +5121,8 @@ function ConfirmRow({
   onToggleSelect,
   internalSuggestion,
   onQuickInternal,
-  onFillBulk
+  onFillBulk,
+  searchTerm
 }) {
   // Close edit mode on global Esc event
   React.useEffect(() => {
@@ -5157,6 +5159,26 @@ function ConfirmRow({
   const borderColor = r.confirmed === "yes" ? isAutoConfirmed ? "#b8e0c8" : "#7fcca0" : r.confirmed === "no" ? "#f5c0c0" : "var(--border)";
   const displayMST = r.confirmedMST || best && best.mst || "";
   const displayName = r.confirmedName || best && best.ten_cty || "";
+
+  // Tô đậm phần nội dung giao dịch trùng với từ đang tìm kiếm, để dễ nhận ra ngay tại sao dòng này
+  // xuất hiện trong kết quả lọc — giống kiểu highlight khi Ctrl+F tìm trên trình duyệt.
+  const highlightDesc = (text, term) => {
+    const t = (term || "").trim();
+    if (!t) return text;
+    const lower = text.toLowerCase(), lowerTerm = t.toLowerCase();
+    const parts = [];
+    let i = 0, idx;
+    while ((idx = lower.indexOf(lowerTerm, i)) !== -1) {
+      if (idx > i) parts.push(text.slice(i, idx));
+      parts.push(/*#__PURE__*/React.createElement("mark", {
+        key: parts.length,
+        style: { background: "#fde047", color: "#1a1a1a", padding: "0 1px", borderRadius: 2 }
+      }, text.slice(idx, idx + t.length)));
+      i = idx + t.length;
+    }
+    if (i < text.length) parts.push(text.slice(i));
+    return parts;
+  };
 
   // Fix 5: clicking a suggestion fills the edit form
   const fillEdit = inv => {
@@ -5288,7 +5310,7 @@ function ConfirmRow({
       lineHeight: 1.4,
       marginBottom: 7
     }
-  }, r.tx.desc), /*#__PURE__*/React.createElement("div", {
+  }, highlightDesc(r.tx.desc, searchTerm)), /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 5,
