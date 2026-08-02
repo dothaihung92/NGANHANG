@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.41";
+const APP_VERSION = "2026.07.05.42";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3795,8 +3795,8 @@ function ConfirmScreen({
   }, [focusIdx]);
   React.useEffect(() => {
     const handler = e => {
-      // Ctrl/Cmd+F focus vào ô tìm nội dung thay vì mở tìm kiếm mặc định của trình duyệt
-      if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
+      // Alt+F focus vào ô tìm nội dung thay vì mở tìm kiếm mặc định của trình duyệt
+      if (e.altKey && (e.key === "f" || e.key === "F")) {
         e.preventDefault();
         if (searchInputRef.current) { searchInputRef.current.focus(); searchInputRef.current.select(); }
         return;
@@ -3837,7 +3837,7 @@ function ConfirmScreen({
       }
       if(e.altKey&&(e.key==="t"||e.key==="T")){e.preventDefault();if(filtered[focusIdx])overrideRow(filtered[focusIdx].id,"","Ti\u1EC1n m\u1EB7t","","1111");return;}
       // Alt+A = Chọn tất cả (chờ xử lý) — chạy trước khi bị chặn bởi input/textarea để dùng được
-      // ngay cả khi đang gõ trong ô tìm kiếm (VD sau khi Ctrl+F vào ô lọc).
+      // ngay cả khi đang gõ trong ô tìm kiếm (VD sau khi Alt+F vào ô lọc).
       if(e.altKey&&(e.key==="a"||e.key==="A")){e.preventDefault();toggleBulkSelectAll();return;}
       if(pickerFor)return;
       const tag=e.target.tagName;
