@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.44";
+const APP_VERSION = "2026.07.05.45";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -254,15 +254,18 @@ function normVN(s) {
   return String(s || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "D").replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
 const STOP = new Set(["CONG", "CTY", "TNHH", "MTV", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "XAY", "DUNG", "HOA", "DON", "THANH", "TOAN", "HANG", "TIEN", "NGAY", "NGAN", "HANG", "GD", "HD", "IB", "TT", "LA", "LO", "PHAT", "THE", "FOR", "AND", "PAY", "TAM", "MUT", "MUA", "VAN", "CHUYEN", "TRA", "QUA", "THEO", "NOP", "CHI", "NOI", "THAT", "VIET", "NAM", "PHAN", "MUC"]);
-function scoreKw(kw, desc) {
+function scoreKw(kw, desc, ownWords) {
   const nd = normVN(desc),
     nk = normVN(kw);
   // Từ khoá quá ngắn (VD "CT", "GD", "TT") hoặc chỉ gồm toàn các từ viết tắt loại hình DN/thuật ngữ
   // ngân hàng chung chung (không có từ nào đủ đặc trưng) rất dễ khớp bừa với gần như MỌI giao dịch
   // (VD "CTY" xuất hiện trong hầu hết nội dung sao kê) — chặn hẳn các từ khoá kiểu này ngay từ đầu.
+  // ownWords (nếu có): các từ trong TÊN CÔNG TY CHỦ TÀI KHOẢN — bản thân sao kê ngân hàng luôn lặp
+  // lại tên chủ tài khoản trong hầu hết mọi giao dịch (là người gửi/nhận), nên 1 từ khoá chỉ trùng
+  // tên công ty mình cũng không có giá trị phân biệt, dễ khớp bừa y hệt các từ viết tắt chung chung.
   if (!nk || nk.length < 3) return 0;
   const nkWords = nk.split(" ");
-  const hasSpecificWord = nkWords.some(w => w.length >= 3 && !STOP.has(w));
+  const hasSpecificWord = nkWords.some(w => w.length >= 3 && !STOP.has(w) && !(ownWords && ownWords.has(w)));
   if (!hasSpecificWord) return 0;
   if (nd.includes(nk)) return 1.0;
   const words = nk.split(" ").filter(w => w.length >= 3);
@@ -616,7 +619,7 @@ function autoFixZeroAmounts(rows, rawSaoke, currency) {
 }
 
 // ── AI Matching ───────────────────────────────────────────────────────────────
-async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onProgress) {
+async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onProgress, coName) {
   const invDVm = invDV.map(i => ({...i,loai: "DAUVAO"}));
   const invDRm = invDR.map(i => ({...i,loai: "DAURA"}));
   function getPool(tx) {
@@ -626,6 +629,9 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
     return Math.max(tx.debit || 0, tx.credit || 0);
   }
   const results = [];
+  // Tên chủ tài khoản luôn lặp lại trong hầu hết mọi giao dịch (là người gửi/nhận trên sao kê) —
+  // loại các từ này khỏi việc tính "đặc trưng" của từ khoá để tránh khớp bừa (xem scoreKw()).
+  const ownWords = new Set(normVN(coName || "").split(" ").filter(w => w.length >= 3));
 
   // ── Tầng 1: Từ điển keyword ──
   onProgress("Tầng 1/2: Đối chiếu từ điển keyword...");
@@ -633,7 +639,7 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
     let best = null,
       bs = 0;
     for (const d of [...coDict, ...globalDict]) {
-      const s = scoreKw(d.keyword, tx.desc);
+      const s = scoreKw(d.keyword, tx.desc, ownWords);
       if (s > bs) {
         bs = s;
         best = {
@@ -781,7 +787,7 @@ async function runMatching(saoke, invDV, invDR, coDict, globalDict, apiKey, onPr
 // Dò lại gợi ý (Tầng 2 + Tầng 3) cho các dòng CHƯA khớp bằng danh sách hoá đơn HIỆN TẠI.
 // Cần thiết vì gợi ý (t2_nameAmt/invMatches/nameMatches) chỉ được tính 1 lần lúc dán sao kê —
 // nếu hoá đơn được bổ sung SAU đó, các dòng cũ sẽ không tự có gợi ý mới cho tới khi dò lại.
-function rematchPending(rows, invDV, invDR) {
+function rematchPending(rows, invDV, invDR, coDict, globalDict, coName) {
   const invDVm = (invDV||[]).map(i => ({...i, loai: "DAUVAO"}));
   const invDRm = (invDR||[]).map(i => ({...i, loai: "DAURA"}));
   const getPool = tx => (tx.credit > 0 ? invDRm : invDVm);
@@ -790,8 +796,19 @@ function rematchPending(rows, invDV, invDR) {
       // Các từ đầy đủ tương ứng với chữ viết tắt loại hình DN ở trên (VD hoá đơn ghi "TRÁCH NHIỆM HỮU HẠN"
       // nhưng sao kê ngân hàng ghi tắt "TNHH") — bỏ qua cả 2 dạng để không làm loãng điểm khớp tên.
       "TRACH", "NHIEM", "HUU", "HAN", "MOT", "VIEN", "DOANH", "NGHIEP"]);
+  const ownWords = new Set(normVN(coName || "").split(" ").filter(w => w.length >= 3));
+  const allDict = [...(coDict||[]), ...(globalDict||[])];
   return rows.map(r => {
     if (r.confirmed === "yes") return r;
+    // Dò lại Tầng 1 (từ điển) bằng scoreKw đã sửa (chặn từ khoá chung chung/trùng tên chủ TK) — để
+    // các dòng đã có t1_dict SAI từ lần xử lý cũ (trước khi có bản vá) cũng được tự sửa lại, không
+    // cần dán lại sao kê.
+    let bs = 0, best = null;
+    for (const d of allDict) {
+      const s = scoreKw(d.keyword, r.tx.desc, ownWords);
+      if (s > bs) { bs = s; best = { ...d, score: s }; }
+    }
+    const t1_dict = bs === 1 ? best : null;
     const pool = getPool(r.tx);
     const amt = getAmt(r.tx);
     let t2_nameAmt = null, invMatches = [];
@@ -822,7 +839,7 @@ function rematchPending(rows, invDV, invDR) {
         return true;
       }).slice(0, 5).map(x => x.inv);
     }
-    return { ...r, t2_nameAmt, invMatches, nameMatches };
+    return { ...r, t1_dict, t2_nameAmt, invMatches, nameMatches };
   });
 }
 async function learnFromResults(results, coDict, coId) {
@@ -1659,6 +1676,7 @@ function App() {
     coDict: coDict,
     globalDict: globalDict,
     apiKey: apiKey,
+    coName: activeCo && activeCo.name,
     onDone: finishProcess
   }),
   screen === "running" && !processData && /*#__PURE__*/React.createElement("div", {
@@ -3175,6 +3193,7 @@ function RunningScreen({
   coDict,
   globalDict,
   apiKey,
+  coName,
   onDone
 }) {
   const [progress, setProgress] = useState("Đang khởi động...");
@@ -3182,7 +3201,7 @@ function RunningScreen({
   useEffect(() => {
     if (ran.current) return;
     ran.current = true;
-    runMatching(data.saoke, data.invDV, data.invDR, coDict, globalDict, apiKey, setProgress).then(onDone);
+    runMatching(data.saoke, data.invDV, data.invDR, coDict, globalDict, apiKey, setProgress, coName).then(onDone);
   }, []);
   return /*#__PURE__*/React.createElement("div", {
     style: {
@@ -3313,7 +3332,7 @@ function ConfirmScreen({
   // Tự động dò lại gợi ý mỗi khi danh sách hoá đơn (invDV/invDR) đổi — VD: mở lại 1 phiên cũ
   // sau khi hoá đơn công ty đã được bổ sung thêm ở lần xử lý khác. Không cần bấm nút thủ công.
   React.useEffect(() => {
-    setRows(cur => rematchPending(cur, invDV, invDR));
+    setRows(cur => rematchPending(cur, invDV, invDR, coDict, globalDict, co && co.name));
   }, [invDV, invDR]);
 
   // Tự động lưu + học từ khoá ngay khi từng giao dịch được xác nhận — không cần đợi bấm
@@ -3394,7 +3413,7 @@ function ConfirmScreen({
     // Check in-memory cache first (preserves unsaved work)
     const applyP=arr=>{const p=crossTabPending.current[cacheKey];if(!p||!Object.keys(p).length)return arr;const mg=arr.map(r=>p[r.id]?{...r,...p[r.id]}:r);delete crossTabPending.current[cacheKey];return mg;};
     if (rowsCache.current[cacheKey] && rowsCache.current[cacheKey].length > 0) {
-      const fr=rematchPending(applyP(rowsCache.current[cacheKey]).map(r=>({...r})),invDV,invDR);rowsCache.current[cacheKey]=fr;setRows(fr);
+      const fr=rematchPending(applyP(rowsCache.current[cacheKey]).map(r=>({...r})),invDV,invDR,coDict,globalDict,co&&co.name);rowsCache.current[cacheKey]=fr;setRows(fr);
       currentTabIdRef.current = accId; // cập nhật ref ngay, tránh lưu nhầm tab
       setActiveTabAccId(accId);
       setFilter("all");
@@ -3426,7 +3445,7 @@ function ConfirmScreen({
           return sp2[accId] || Object.values(sp2).find(v=>v&&v.trim()) || "";
         } catch(e) { return ""; }
       })();
-      const loaded = rematchPending(autoFixZeroAmounts(sanitizeRows(rawLoaded), rawFallback, s.currency||"VND"), invDV, invDR);
+      const loaded = rematchPending(autoFixZeroAmounts(sanitizeRows(rawLoaded), rawFallback, s.currency||"VND"), invDV, invDR, coDict, globalDict, co && co.name);
       rowsCache.current[String(accId)] = loaded;
       currentTabIdRef.current = accId;
       setRows(loaded);
@@ -3514,12 +3533,13 @@ function ConfirmScreen({
       };
     }));
     if (kw && kw.trim().length >= 3) {
+      const ownWords = new Set(normVN((co && co.name) || "").split(" ").filter(w => w.length >= 3));
       setTimeout(() => {
         setRowsH(prev => {
           let count = 0;
           const next = prev.map(r => {
             if (r.confirmed || r.id === id) return r;
-            const sc = scoreKw(kw, r.tx.desc);
+            const sc = scoreKw(kw, r.tx.desc, ownWords);
             if (sc === 1) {
               count++;
               return {
@@ -4091,7 +4111,7 @@ function ConfirmScreen({
       const newSaoke = parseSaoke(addText, currency);
       if (!newSaoke.length) { showToast && showToast("Không nhận diện được giao dịch nào"); setAddBusy(false); return; }
       const apiKey = LS.get("api_key") || "";
-      const newResults = await runMatching(newSaoke, invDV||[], invDR||[], coDict, globalDict, apiKey, () => {});
+      const newResults = await runMatching(newSaoke, invDV||[], invDR||[], coDict, globalDict, apiKey, () => {}, co && co.name);
       const keyOf = r => (r.tx.date||"") + "|" + (r.tx.desc||"").trim() + "|" + Math.max(r.tx.debit||0, r.tx.credit||0);
       const existKeys = new Set(rows.map(keyOf));
       const uniqueNew = newResults.filter(nr => !existKeys.has(keyOf(nr)));
@@ -4135,7 +4155,7 @@ function ConfirmScreen({
       const newSaoke = parseSaoke(addText, currency);
       if (!newSaoke.length) { showToast && showToast("Không nhận diện được giao dịch nào"); setAddBusy(false); return; }
       const apiKey = LS.get("api_key") || "";
-      const newResults = await runMatching(newSaoke, invDV||[], invDR||[], coDict, globalDict, apiKey, () => {});
+      const newResults = await runMatching(newSaoke, invDV||[], invDR||[], coDict, globalDict, apiKey, () => {}, co && co.name);
       const saveKey = tabId ? co.id+"_"+tabId : co.id;
       const existing = LS.get("session_"+saveKey) || {};
       saveCoInvoices(co.id, invDV, invDR);
