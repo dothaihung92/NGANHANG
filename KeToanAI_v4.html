@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.43";
+const APP_VERSION = "2026.07.05.44";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3315,6 +3315,36 @@ function ConfirmScreen({
   React.useEffect(() => {
     setRows(cur => rematchPending(cur, invDV, invDR));
   }, [invDV, invDR]);
+
+  // Tự động lưu + học từ khoá ngay khi từng giao dịch được xác nhận — không cần đợi bấm
+  // "Lưu & học". Dữ liệu (rows) đã tự lưu xuống LS ngay trong setRowsH; ở đây chỉ còn cần học
+  // từ khoá vào từ điển công ty. learnedRowIds tránh học lại 1 dòng nhiều lần khi rows đổi vì
+  // lý do khác (VD sửa 1 dòng khác cũng khiến cả mảng rows đổi tham chiếu).
+  // Khởi tạo với ID các dòng ĐÃ xác nhận sẵn từ trước (khi mở lại phiên) — tránh học lại/tăng
+  // hits hàng loạt cho toàn bộ dữ liệu cũ mỗi lần mở file, chỉ học các dòng MỚI xác nhận trong
+  // phiên làm việc này.
+  const learnedRowIds = React.useRef(new Set(rows.filter(r => r.confirmed === "yes" && r.manualConfirm).map(r => r.id)));
+  React.useEffect(() => {
+    const toLearn = rows.filter(r => r.confirmed === "yes" && r.confirmedMST && r.manualConfirm && !learnedRowIds.current.has(r.id));
+    if (!toLearn.length) return;
+    let d = [...coDict], changed = false;
+    for (const r of toLearn) {
+      learnedRowIds.current.add(r.id);
+      const kw = r.manualKw || (r.t1_dict && r.t1_dict.keyword) || "";
+      if (!kw || kw.length < 3) continue;
+      const key = normVN(kw);
+      const ex = d.find(x => normVN(x.keyword) === key && x.mst === r.confirmedMST);
+      if (!ex) {
+        d.push({ id: uid(), keyword: kw, mst: r.confirmedMST, ten_cty: r.confirmedName || "", hach_toan: r.confirmedHach || "", note: "AI học", hits: 1, source: "learned", created: new Date().toLocaleDateString("vi-VN") });
+        changed = true;
+      } else {
+        ex.hits = (ex.hits || 0) + 1;
+        if (!ex.hach_toan && r.confirmedHach) ex.hach_toan = r.confirmedHach;
+        changed = true;
+      }
+    }
+    if (changed) onSaveCo(d);
+  }, [rows]);
 
   // Lưu ngay khi đóng tab/cửa sổ — lưu TẤT CẢ các tab tài khoản
   React.useEffect(() => {
