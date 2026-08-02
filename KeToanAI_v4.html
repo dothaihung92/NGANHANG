@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.52";
+const APP_VERSION = "2026.07.05.53";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3514,6 +3514,29 @@ function ConfirmScreen({
   const [addMode, setAddMode] = useState(false);
   const [addText, setAddText] = useState("");
   const [addBusy, setAddBusy] = useState(false);
+  const [addFileImporting, setAddFileImporting] = useState(false);
+  // Cho phép chọn file Excel/CSV thay vì phải copy-paste tay — đọc sheet đầu tiên, chuyển thành
+  // text dạng tab giống hệt khi dán từ Excel, rồi đổ vào ô addText như bình thường.
+  const handleAddExcelFile = file => {
+    if (!file) return;
+    setAddFileImporting(true);
+    const reader = new FileReader();
+    reader.onload = e => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: "array", cellDates: true });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false });
+        const txt = rows.filter(r => r.some(c => String(c).trim())).map(r => r.map(c => String(c || "").trim()).join("\t")).join("\n");
+        setAddText(txt);
+        const count = parseSaoke(txt, activeTabAcc ? activeTabAcc.currency : "VND").length;
+        showToast && showToast(`✓ Đã đọc ${count} giao dịch từ "${file.name}"`, "ok");
+      } catch (e2) {
+        showToast && showToast("Lỗi đọc file Excel: " + e2.message, "err");
+      }
+      setAddFileImporting(false);
+    };
+    reader.readAsArrayBuffer(file);
+  };
 
   // ── Xác nhận hàng loạt: chọn nhiều dòng giống nhau rồi gán MST/hạch toán 1 lần ──
   const [bulkSelected, setBulkSelected] = useState(new Set());
@@ -4653,6 +4676,21 @@ function ConfirmScreen({
   },
     /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, fontWeight: 600, color: "var(--green-d)", marginBottom: 6 } },
       "➕ Thêm / ghi đè dữ liệu sao kê cho ", activeTabAcc ? activeTabAcc.label : "", " (", activeTabAcc ? activeTabAcc.currency : "VND", ")"),
+    /*#__PURE__*/React.createElement("label", {
+      style: { display: "inline-flex", alignItems: "center", gap: 6, cursor: addFileImporting ? "not-allowed" : "pointer", marginBottom: 8 }
+    },
+      /*#__PURE__*/React.createElement("input", {
+        type: "file",
+        accept: ".xlsx,.xls,.csv",
+        disabled: addFileImporting,
+        style: { display: "none" },
+        onChange: e => { if (e.target.files[0]) handleAddExcelFile(e.target.files[0]); e.target.value = ""; }
+      }),
+      /*#__PURE__*/React.createElement("span", {
+        className: "btn btn-outline",
+        style: { fontSize: 12, height: 30, display: "inline-flex", alignItems: "center", gap: 5, opacity: addFileImporting ? .6 : 1 }
+      }, addFileImporting ? "Đang đọc file..." : "📂 Nhập từ Excel/CSV")
+    ),
     /*#__PURE__*/React.createElement("textarea", {
       value: addText,
       onChange: e => setAddText(e.target.value),
