@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.47";
+const APP_VERSION = "2026.07.05.48";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3936,7 +3936,18 @@ function ConfirmScreen({
   const getOtherRows = accId => {
     const k=String(accId);
     const ls=accId?co.id+"_"+accId:co.id;
-    const s=LS.get("session_"+ls);
+    let s=LS.get("session_"+ls);
+    // Fallback: nếu không tìm thấy đúng key ghép "coId_accId" (VD dữ liệu TK này được lưu từ trước
+    // khi hỗ trợ nhiều TK, chỉ dưới key "coId" đơn thuần) — quét toàn bộ session index của công ty,
+    // giống hệt cách switchTab() đã làm, để không bỏ sót dữ liệu TK kia.
+    if(!s||!s.results||!s.results.length){
+      const idx=getSessionIndex(co.id);
+      for(const key2 of idx){
+        const candidate=LS.get("session_"+key2);
+        if(candidate&&candidate.results&&candidate.results.length&&
+           (candidate.accountId===accId||key2===ls)){ s=candidate; break; }
+      }
+    }
     if(s&&s.results&&s.results.length){ rowsCache.current[k]=s.results; return s.results; }
     if(rowsCache.current[k]&&rowsCache.current[k].length>0) return rowsCache.current[k];
     return [];
@@ -4876,7 +4887,7 @@ internalModalFor&&internalModalRow&&React.createElement("div",{
         React.createElement("div",{style:{flex:1,overflowY:"auto",border:"1px solid #e2d9f3",borderRadius:6}},
           (()=>{const q=internalModalSearch.toLowerCase();
             const disp=internalModalCandidates.filter(c=>!q||(c.tx.desc||"").toLowerCase().includes(q));
-            if(!disp.length)return React.createElement("div",{style:{padding:"24px",textAlign:"center",color:"#888",fontSize:12,fontStyle:"italic"}},internalModalCandidates.length===0?"Không tìm thấy GD nào khớp đúng số tiền (± 1 ngày) ở TK này — thử chọn TK khác":"Không có kết quả khớp với từ khoá lọc");
+            if(!disp.length)return React.createElement("div",{style:{padding:"24px",textAlign:"center",color:"#888",fontSize:12,fontStyle:"italic"}},internalModalCandidates.length===0?"Không tìm thấy GD nào khớp đúng số tiền (± 7 ngày) ở TK này — thử chọn TK khác":"Không có kết quả khớp với từ khoá lọc");
             const pd=d=>{if(!d)return null;const m=String(d).match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/);return m?new Date(m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")):new Date(d);};
             return disp.map((cand,ci)=>{
               const isSel=internalModalOtherRowId===cand.id;
