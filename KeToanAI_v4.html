@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.53";
+const APP_VERSION = "2026.07.05.54";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -335,6 +335,7 @@ function parseSaoke(text, currency) {
   // Use more specific patterns. Also require short cell (< 40 chars) to avoid matching descriptions
   const dbI = h.findIndex(c => c.length < 40 && (
     c.includes("GHI NO") || c.includes("TIEN RA") || c.includes("SO NO") || c.includes("TIEN NO") || c.includes("DEBIT") ||
+    c.includes("RUT RA") || c.includes("RUT TIEN") ||
     c === "NO" || c === "RUT" || c === "CHI TIET" || c.includes("PHAT SINH NO")
   ));
   const crI = h.findIndex(c => c.length < 40 && (
