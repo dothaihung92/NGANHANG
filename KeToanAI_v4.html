@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.49";
+const APP_VERSION = "2026.07.05.50";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -878,8 +878,12 @@ async function learnFromResults(results, coDict, coId) {
 }
 
 // ── Export Excel ──────────────────────────────────────────────────────────────
-function exportExcel(results, coName, allDict) {
+function exportExcel(allResults, coName, allDict) {
   try {
+    // Dòng bên kia của 1 giao dịch chuyển khoản nội bộ (hạch toán = "X") chỉ là placeholder tự động
+    // đánh dấu — bên đã bấm xác nhận nội bộ đã hạch toán đủ cả 2 vế bằng mã TK thật rồi, đưa dòng "X"
+    // này vào báo cáo đối chiếu sẽ ghi trùng 1 lần nữa nên phải loại bỏ (giống UNT/UNC).
+    const results = allResults.filter(r => r.confirmedHach !== "X");
     const wb = XLSX.utils.book_new();
     const dateStr = new Date().toLocaleDateString("vi-VN");
 
