@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.46";
+const APP_VERSION = "2026.07.05.47";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3930,7 +3930,17 @@ function ConfirmScreen({
   // Bỏ phần giờ nếu có (VD sao kê VietinBank ghi "15-07-2025 08:59:05") trước khi so khớp ngày —
   // nếu không, regex ngày sẽ không khớp và bị fallback sang new Date() (hiểu sai dd-mm-yyyy) → GD bị loại nhầm.
   const parseVNDateI = d => { if(!d)return null; const s=String(d).trim().split(/\s+/)[0]; const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/); return m?new Date(m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")):new Date(d); };
-  const getOtherRows = accId => { const k=String(accId); if(rowsCache.current[k]&&rowsCache.current[k].length>0)return rowsCache.current[k]; const ls=accId?co.id+"_"+accId:co.id; const s=LS.get("session_"+ls); if(s&&s.results){rowsCache.current[k]=s.results;return s.results;} return []; };
+  // Luôn đọc TRỰC TIẾP từ LocalStorage (không dùng cache trong bộ nhớ) — vì gợi ý chuyển tiền nội
+  // bộ cần phản ánh đúng trạng thái MỚI NHẤT của tài khoản kia (VD vừa xác nhận Tiền mặt/hoá đơn ở
+  // đó), tránh trường hợp bộ nhớ đệm cũ khiến gợi ý không hiện dù dữ liệu thực tế đã đúng.
+  const getOtherRows = accId => {
+    const k=String(accId);
+    const ls=accId?co.id+"_"+accId:co.id;
+    const s=LS.get("session_"+ls);
+    if(s&&s.results&&s.results.length){ rowsCache.current[k]=s.results; return s.results; }
+    if(rowsCache.current[k]&&rowsCache.current[k].length>0) return rowsCache.current[k];
+    return [];
+  };
   // Lọc ứng viên cho 1 tài khoản cụ thể: đúng chiều ngược dấu + lệch tối đa 7 ngày + KHỚP ĐÚNG SỐ TIỀN.
   // Chuyển khoản nội bộ giữa 2 TK của cùng công ty thì số tiền 2 bên luôn giống hệt nhau (trừ khi có phí
   // ngân hàng cộng thêm — trường hợp đó xử lý riêng bằng "Nhập khác"), nên không cần hiện các số tiền khác.
