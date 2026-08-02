@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.48";
+const APP_VERSION = "2026.07.05.49";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3930,16 +3930,28 @@ function ConfirmScreen({
   // Bỏ phần giờ nếu có (VD sao kê VietinBank ghi "15-07-2025 08:59:05") trước khi so khớp ngày —
   // nếu không, regex ngày sẽ không khớp và bị fallback sang new Date() (hiểu sai dd-mm-yyyy) → GD bị loại nhầm.
   const parseVNDateI = d => { if(!d)return null; const s=String(d).trim().split(/\s+/)[0]; const m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})$/); return m?new Date(m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0")):new Date(d); };
+  // Tìm ĐÚNG key session của 1 tài khoản trong LS — không chỉ thử key ghép chuẩn "coId_accId" mà
+  // còn quét toàn bộ session index của công ty khi key chuẩn không có dữ liệu (VD tài khoản đó được
+  // lưu từ trước khi hỗ trợ nhiều TK, chỉ dưới key "coId" đơn thuần). Dùng chung cho MỌI chỗ đọc/ghi
+  // dữ liệu "tài khoản kia" (gợi ý nội bộ + ghi dấu X) để không bao giờ lệch key giữa đọc và ghi.
+  const resolveSessionKeyFor = accId => {
+    const ls = accId ? co.id+"_"+accId : co.id;
+    if (LS.get("session_"+ls)) return ls;
+    const idx = getSessionIndex(co.id);
+    for (const key2 of idx) {
+      const candidate = LS.get("session_"+key2);
+      if (candidate && candidate.results && candidate.results.length &&
+          (candidate.accountId === accId || key2 === ls)) return key2;
+    }
+    return ls;
+  };
   // Luôn đọc TRỰC TIẾP từ LocalStorage (không dùng cache trong bộ nhớ) — vì gợi ý chuyển tiền nội
   // bộ cần phản ánh đúng trạng thái MỚI NHẤT của tài khoản kia (VD vừa xác nhận Tiền mặt/hoá đơn ở
   // đó), tránh trường hợp bộ nhớ đệm cũ khiến gợi ý không hiện dù dữ liệu thực tế đã đúng.
   const getOtherRows = accId => {
     const k=String(accId);
-    const ls=accId?co.id+"_"+accId:co.id;
+    const ls=resolveSessionKeyFor(accId);
     let s=LS.get("session_"+ls);
-    // Fallback: nếu không tìm thấy đúng key ghép "coId_accId" (VD dữ liệu TK này được lưu từ trước
-    // khi hỗ trợ nhiều TK, chỉ dưới key "coId" đơn thuần) — quét toàn bộ session index của công ty,
-    // giống hệt cách switchTab() đã làm, để không bỏ sót dữ liệu TK kia.
     if(!s||!s.results||!s.results.length){
       const idx=getSessionIndex(co.id);
       for(const key2 of idx){
@@ -4049,7 +4061,7 @@ function ConfirmScreen({
       crossTabPending.current[ck][otherRowId]=upd;
       if(rowsCache.current[ck]&&rowsCache.current[ck].length>0)
         rowsCache.current[ck]=rowsCache.current[ck].map(r=>r.id===otherRowId?{...r,...upd}:r);
-      const lk=accId?co.id+"_"+accId:co.id,s=LS.get("session_"+lk);
+      const lk=resolveSessionKeyFor(accId),s=LS.get("session_"+lk);
       if(s&&s.results){
         let matched=false;
         let ur=s.results.map(r=>{
