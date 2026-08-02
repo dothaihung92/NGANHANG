@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.51";
+const APP_VERSION = "2026.07.05.52";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1380,6 +1380,11 @@ function App() {
     // Save raw-parsed (no-AI) sessions for ALL accounts first
     allAccountData.forEach(({accId, sk, currency}) => {
       const accKey = accId ? activeCo.id+"_"+accId : activeCo.id;
+      // An toàn lớp 2 (đã lọc từ handleRun, nhưng chặn lại ở đây cho chắc): TUYỆT ĐỐI không ghi đè
+      // 1 TK đã có sẵn dữ liệu (dù chưa xác nhận hết) — tránh lặp lại sự cố mất dữ liệu do xử lý
+      // nhầm nhiều TK cùng lúc.
+      const existing = LS.get("session_"+accKey);
+      if (existing && existing.results && existing.results.length > 0) return;
       const rawSaoke = (inputData.saokePer && inputData.saokePer[accId]) || "";
       // Save initial session with unmatched rows (status pending)
       const initialRows = sk.map(tx => ({id: uid(), tx, status:"pending", matches:[], confirmed:false, notFound:false}));
@@ -2739,10 +2744,21 @@ function CompanyScreen({
     const allAccounts2 = (co && co.accounts && co.accounts.length)
       ? co.accounts
       : [{id: activeAccountId||null, label:"TK chính", currency: currency||"VND"}];
-    
+
     const accsWithData = allAccounts2.filter(acc => {
       const text = (saokePer||{})[acc.id] || (acc.id === activeAccountId ? saokeText : "");
-      return parseSaoke(text, acc.currency||"VND").length > 0;
+      if (!(parseSaoke(text, acc.currency||"VND").length > 0)) return false;
+      // Bỏ qua các TK KHÔNG phải TK đang mở mà đã có sẵn phiên xử lý (có giao dịch) trong bộ nhớ —
+      // đây là nguyên nhân từng gây MẤT SẠCH dữ liệu đã xác nhận: text sao kê cũ của các TK khác vẫn
+      // còn sót lại trong bộ nhớ tạm (saokePer) từ những lần dán trước, nên khi bấm "Xử lý" cho 1 TK
+      // MỚI, nó vô tình gom luôn các TK cũ vào rồi ghi đè toàn bộ session của chúng bằng dữ liệu mới
+      // (chưa xác nhận). Muốn xử lý lại 1 TK đã có dữ liệu, hãy dùng "Thêm sao kê"/"Ghi đè toàn bộ"
+      // ngay trong màn hình Xác nhận kết quả của TK đó.
+      if (acc.id !== activeAccountId) {
+        const existing = LS.get("session_" + co.id + "_" + acc.id);
+        if (existing && existing.results && existing.results.length > 0) return false;
+      }
+      return true;
     });
 
     if (accsWithData.length === 0) {
