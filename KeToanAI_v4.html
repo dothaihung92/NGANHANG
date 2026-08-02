@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.42";
+const APP_VERSION = "2026.07.05.43";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -253,10 +253,17 @@ function fmt(n, currency) {
 function normVN(s) {
   return String(s || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "D").replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
 }
+const STOP = new Set(["CONG", "CTY", "TNHH", "MTV", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "XAY", "DUNG", "HOA", "DON", "THANH", "TOAN", "HANG", "TIEN", "NGAY", "NGAN", "HANG", "GD", "HD", "IB", "TT", "LA", "LO", "PHAT", "THE", "FOR", "AND", "PAY", "TAM", "MUT", "MUA", "VAN", "CHUYEN", "TRA", "QUA", "THEO", "NOP", "CHI", "NOI", "THAT", "VIET", "NAM", "PHAN", "MUC"]);
 function scoreKw(kw, desc) {
   const nd = normVN(desc),
     nk = normVN(kw);
-  if (!nk || nk.length < 2) return 0;
+  // Từ khoá quá ngắn (VD "CT", "GD", "TT") hoặc chỉ gồm toàn các từ viết tắt loại hình DN/thuật ngữ
+  // ngân hàng chung chung (không có từ nào đủ đặc trưng) rất dễ khớp bừa với gần như MỌI giao dịch
+  // (VD "CTY" xuất hiện trong hầu hết nội dung sao kê) — chặn hẳn các từ khoá kiểu này ngay từ đầu.
+  if (!nk || nk.length < 3) return 0;
+  const nkWords = nk.split(" ");
+  const hasSpecificWord = nkWords.some(w => w.length >= 3 && !STOP.has(w));
+  if (!hasSpecificWord) return 0;
   if (nd.includes(nk)) return 1.0;
   const words = nk.split(" ").filter(w => w.length >= 3);
   if (!words.length) return 0;
@@ -271,7 +278,6 @@ function scoreKw(kw, desc) {
   };
   return words.filter(wordMatches).length / words.length;
 }
-const STOP = new Set(["CONG", "CTY", "TNHH", "MTV", "CO", "PHAN", "CP", "SAN", "XUAT", "THUONG", "MAI", "DICH", "VU", "XAY", "DUNG", "HOA", "DON", "THANH", "TOAN", "HANG", "TIEN", "NGAY", "NGAN", "HANG", "GD", "HD", "IB", "TT", "LA", "LO", "PHAT", "THE", "FOR", "AND", "PAY", "TAM", "MUT", "MUA", "VAN", "CHUYEN", "TRA", "QUA", "THEO", "NOP", "CHI", "NOI", "THAT", "VIET", "NAM", "PHAN", "MUC"]);
 function extractKw(desc) {
   const words = normVN(desc).split(" ").filter(w => w.length >= 3 && !STOP.has(w) && !/^\d+$/.test(w));
   return words.slice(0, 4).join(" ");
