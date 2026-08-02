@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.50";
+const APP_VERSION = "2026.07.05.51";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -878,12 +878,11 @@ async function learnFromResults(results, coDict, coId) {
 }
 
 // ── Export Excel ──────────────────────────────────────────────────────────────
-function exportExcel(allResults, coName, allDict) {
+function exportExcel(results, coName, allDict) {
   try {
-    // Dòng bên kia của 1 giao dịch chuyển khoản nội bộ (hạch toán = "X") chỉ là placeholder tự động
-    // đánh dấu — bên đã bấm xác nhận nội bộ đã hạch toán đủ cả 2 vế bằng mã TK thật rồi, đưa dòng "X"
-    // này vào báo cáo đối chiếu sẽ ghi trùng 1 lần nữa nên phải loại bỏ (giống UNT/UNC).
-    const results = allResults.filter(r => r.confirmedHach !== "X");
+    // Lưu ý: KHÔNG loại dòng hạch toán "X" (vế bên kia của chuyển tiền nội bộ) ở đây — báo cáo đối
+    // chiếu Excel cần hiện ĐẦY ĐỦ toàn bộ giao dịch để dễ rà soát thủ công. Việc loại bỏ dòng "X" chỉ
+    // áp dụng khi xuất UNT/UNC (chứng từ kế toán import vào MISA), không áp dụng cho báo cáo đối chiếu này.
     const wb = XLSX.utils.book_new();
     const dateStr = new Date().toLocaleDateString("vi-VN");
 
@@ -985,6 +984,9 @@ function exportExcel(allResults, coName, allDict) {
         }
       });
     }
+    // Bật AutoFilter (mũi tên lọc) trên dòng tiêu đề — để dễ lọc/rà soát thủ công trong Excel
+    // (VD lọc theo Hạch toán = "X", theo Trạng thái, theo MST...).
+    ws["!autofilter"] = { ref: "A4:I" + data.length };
     XLSX.utils.book_append_sheet(wb, ws, "Đối chiếu");
 
     // ── Sheet 2: Chưa xác nhận ──
@@ -1013,6 +1015,7 @@ function exportExcel(allResults, coName, allDict) {
           }
         });
       }
+      ws2["!autofilter"] = { ref: "A1:E" + d2.length };
       XLSX.utils.book_append_sheet(wb, ws2, "Chưa xác nhận");
     }
 
