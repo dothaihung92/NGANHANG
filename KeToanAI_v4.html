@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.57";
+const APP_VERSION = "2026.07.05.58";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -2469,7 +2469,9 @@ function AccountTabs({co, activeAccountId, currency, onSelect, onSave}) {
   };
   const saveMisa = (accId) => {
     const trimmed = editMisa.trim();
-    const updated = accounts.map(a=>a.id===accId?{...a,misaAcct:trimmed,bankName:editBankName.trim(),accountNo:editAccountNo.trim()}:a);
+    // Đổi mã hạch toán MISA thì tên tài khoản (hiện trên nút tab màu xanh) cũng đổi theo luôn — để
+    // 2 nơi hiển thị luôn đồng bộ, không cần đổi tên 2 lần.
+    const updated = accounts.map(a=>a.id===accId?{...a,label:trimmed||a.label,misaAcct:trimmed,bankName:editBankName.trim(),accountNo:editAccountNo.trim()}:a);
     onSave(updated);
     const updAcc = updated.find(a=>a.id===accId);
     if(updAcc && activeAccountId===accId) onSelect(updAcc);
@@ -3361,7 +3363,8 @@ function ConfirmScreen({
   };
   const saveMisa = (accId) => {
     const trimmed = editMisa.trim();
-    if (saveCoAccounts) saveCoAccounts(co.id, allAccounts.map(a=>a.id===accId?{...a,misaAcct:trimmed,bankName:editBankName.trim(),accountNo:editAccountNo.trim()}:a));
+    // Đổi mã hạch toán MISA thì tên tài khoản (hiện trên tab) cũng đổi theo luôn — đồng bộ 2 nơi.
+    if (saveCoAccounts) saveCoAccounts(co.id, allAccounts.map(a=>a.id===accId?{...a,label:trimmed||a.label,misaAcct:trimmed,bankName:editBankName.trim(),accountNo:editAccountNo.trim()}:a));
     setEditingMisaId(null);
   };
 
