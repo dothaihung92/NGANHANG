@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.61";
+const APP_VERSION = "2026.07.05.62";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3654,6 +3654,7 @@ function ConfirmScreen({
   });
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
+  const [hachFilter, setHachFilter] = useState(""); // lọc theo đúng mã hạch toán (VD "331", "1111")
   const [pickerFor, setPickerFor] = useState(null);
   const [pickerSearch, setPickerSearch] = useState("");
   const [pickerSelected, setPickerSelected] = useState(new Set());
@@ -3923,12 +3924,22 @@ function ConfirmScreen({
   };
   const mismatchCount = rows.filter(isMismatchRow).length;
 
+  // Xác nhận rồi mà hạch toán Nợ/Có là 131 (phải thu) hoặc 331 (phải trả) — luôn cần MST đối tác đi
+  // kèm để lên chứng từ/xuất UNT-UNC đúng đối tượng. Nếu thiếu MST thì đây gần như chắc chắn là do
+  // nhập thiếu, cần cảnh báo để rà lại thay vì phát hiện lúc xuất UNT/UNC.
+  const isMissingMstRow = r => r.confirmed === "yes" && (r.confirmedHach === "131" || r.confirmedHach === "331") && !r.confirmedMST;
+  const missingMstCount = rows.filter(isMissingMstRow).length;
+  // Danh sách các mã hạch toán đã dùng (để lọc theo đúng 1 mã, VD lọc riêng "331" hoặc "1111")
+  const usedHachCodes = [...new Set(rows.filter(r => r.confirmed === "yes" && r.confirmedHach).map(r => r.confirmedHach))].sort();
+
   const filtered = rows.filter(r => {
     if (filter === "pending" && r.confirmed) return false; // truthy = any confirmed state
     if (filter === "manual" && (r.confirmed !== "yes" || !r.manualConfirm)) return false;
     if (filter === "auto" && (r.confirmed !== "yes" || r.manualConfirm)) return false;
     if (filter === "no" && r.confirmed !== "no") return false;
     if (filter === "mismatch" && !isMismatchRow(r)) return false;
+    if (filter === "missingmst" && !isMissingMstRow(r)) return false;
+    if (hachFilter && r.confirmedHach !== hachFilter) return false;
     if (search && !r.tx.desc.toLowerCase().includes(search.toLowerCase()) && !(r.confirmedName || "").toLowerCase().includes(search.toLowerCase())) return false;
     return true;
     // Sort: tiền vào (credit) first, then tiền ra (debit) - display only, NOT for export
@@ -4927,6 +4938,34 @@ function ConfirmScreen({
       opacity: .85
     }}, filter === "mismatch" ? "→ Đang lọc — nhấn để bỏ" : "→ Nhấn để lọc")
   ),
+  missingMstCount > 0 && /*#__PURE__*/React.createElement("div", {
+    onClick: () => { setFilter(filter === "missingmst" ? "all" : "missingmst"); setFocusIdx(0); clearBulkSelection(); },
+    title: "Các giao dịch đã xác nhận hạch toán 131/331 nhưng chưa có MST đối tác — nhấn để lọc và sửa lại",
+    style: {
+      background: filter === "missingmst" ? "#dc2626" : "#fee2e2",
+      border: "1px solid #fca5a5",
+      borderRadius: 8,
+      padding: "10px 16px",
+      marginBottom: 12,
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      color: filter === "missingmst" ? "#fff" : "#dc2626",
+      fontWeight: 600,
+      fontSize: 13,
+      transition: ".15s"
+    }
+  },
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:18}}, "🚫"),
+    /*#__PURE__*/React.createElement("span", null,
+      missingMstCount + " giao dịch hạch toán 131/331 nhưng chưa có MST đối tác"
+    ),
+    /*#__PURE__*/React.createElement("span", {style:{
+      marginLeft:"auto", fontSize:11, fontWeight:400,
+      opacity: .85
+    }}, filter === "missingmst" ? "→ Đang lọc — nhấn để bỏ" : "→ Nhấn để lọc và sửa")
+  ),
   /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
@@ -4967,7 +5006,23 @@ function ConfirmScreen({
       fontSize: 12,
       padding: "5px 11px"
     }
-  }, lb)), /*#__PURE__*/React.createElement("input", {
+  }, lb)), usedHachCodes.length > 0 && /*#__PURE__*/React.createElement("select", {
+    value: hachFilter,
+    onChange: e => { setHachFilter(e.target.value); setFocusIdx(0); clearBulkSelection(); },
+    title: "L\u1ECDc theo \u0111\u00FAng m\u00E3 h\u1EA1ch to\u00E1n N\u1EE3/C\u00F3 \u0111\u00E3 d\u00F9ng (VD 331, 1111...)",
+    style: {
+      height: 32,
+      fontSize: 12,
+      borderRadius: 6,
+      border: "1px solid var(--border)",
+      padding: "0 8px",
+      background: hachFilter ? "#eef4fa" : "#fff",
+      color: hachFilter ? "var(--blue)" : "var(--text)",
+      fontWeight: hachFilter ? 600 : 400
+    }
+  }, /*#__PURE__*/React.createElement("option", {value:""}, "T\u1EA5t c\u1EA3 h\u1EA1ch to\u00E1n"),
+    usedHachCodes.map(hc => /*#__PURE__*/React.createElement("option", {key: hc, value: hc}, "H\u1EA1ch to\u00E1n " + hc))
+  ), /*#__PURE__*/React.createElement("input", {
     ref: searchInputRef,
     value: search,
     onChange: e => setSearch(e.target.value),
@@ -6126,7 +6181,11 @@ function ConfirmRow({
       border: "1px solid var(--border)",
       padding: "0 7px"
     }
-  }), /*#__PURE__*/React.createElement("input", {
+  }), /*#__PURE__*/React.createElement("div", {
+    style: { fontSize: 10, color: "var(--text3)", marginTop: -4 }
+  }, r.tx.debit > 0 ? "H\u1EA1ch to\xE1n TK N\u1EE3 (TK C\xF3 = ng\xE2n h\xE0ng)" : "H\u1EA1ch to\xE1n TK C\xF3 (TK N\u1EE3 = ng\xE2n h\xE0ng)",
+    editMST && /*#__PURE__*/React.createElement("span", { style: { color: "var(--blue)", fontWeight: 600, marginLeft: 6 } }, "\u2022 MST: " + editMST)
+  ), /*#__PURE__*/React.createElement("input", {
     value: editHach,
     onChange: e => setEditHach(e.target.value),
     placeholder: r.tx.debit > 0 ? "TK 331 (m\u1EB7c \u0111\u1ECBnh)" : "TK 131 (m\u1EB7c \u0111\u1ECBnh)",
