@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.54";
+const APP_VERSION = "2026.07.05.55";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1067,10 +1067,16 @@ function exportExcel(results, coName, allDict) {
 }
 
 // ── Export UNT / UNC cho MISA (mẫu Import chứng từ thu tiền / chi tiền gửi) ──
-// Số chứng từ tự sinh: PREFIX + ngày chứng từ (dd/mm/yyyy) + số thứ tự tăng dần trong lần
-// xuất này — luôn duy nhất trong 1 lần import (tối đa ~16 ký tự, giới hạn cho phép là 20).
-function buildVoucherNo(prefix, date, seq) {
-  return `${prefix}${date || ""}${seq}`.slice(0, 20);
+// Số chứng từ tự sinh: PREFIX + vài số cuối của TK ngân hàng + ngày chứng từ (bỏ dấu "/") + số thứ
+// tự tăng dần. Bắt buộc phải có phần TK ngân hàng — nếu công ty có NHIỀU tài khoản và xuất UNT/UNC
+// riêng cho từng TK, chỉ dùng ngày+số thứ tự thì các lần xuất khác nhau rất dễ trùng số chứng từ
+// (VD "UNT17/05/202410" của VietinBank trùng với "UNT17/05/202410" của ACB) khiến MISA báo trùng khi
+// import nhiều TK cùng lúc. Luôn giữ tối đa 20 ký tự theo giới hạn của MISA.
+function buildVoucherNo(prefix, date, seq, bankAcct) {
+  const compactDate = String(date || "").replace(/\//g, "");
+  const m = String(bankAcct || "").match(/(\d{3,4})$/);
+  const tag = m ? m[1] : "";
+  return `${prefix}${tag}${compactDate}${seq}`.slice(0, 20);
 }
 
 function exportUNT(rows, coName, bankAcct) {
@@ -1090,7 +1096,7 @@ function exportUNT(rows, coName, bankAcct) {
       row[0] = "0";
       row[1] = r.tx.date;
       row[2] = r.tx.date;
-      row[3] = buildVoucherNo("UNT", r.tx.date, seq);
+      row[3] = buildVoucherNo("UNT", r.tx.date, seq, bankAcct);
       row[4] = maDoiTuong;
       row[12] = (r.tx.desc || "").slice(0, 255);
       row[13] = bankAcct || "1121";
@@ -1128,7 +1134,7 @@ function exportUNC(rows, coName, bankAcct) {
       row[1] = "0";
       row[2] = r.tx.date;
       row[3] = r.tx.date;
-      row[4] = buildVoucherNo("UNC", r.tx.date, seq);
+      row[4] = buildVoucherNo("UNC", r.tx.date, seq, bankAcct);
       row[9] = maDoiTuong;
       row[19] = (r.tx.desc || "").slice(0, 255);
       row[20] = hach;
