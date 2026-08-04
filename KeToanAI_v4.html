@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.64";
+const APP_VERSION = "2026.07.05.65";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1074,8 +1074,18 @@ function exportExcel(results, coName, allDict) {
 // import nhiều TK cùng lúc. Luôn giữ tối đa 20 ký tự theo giới hạn của MISA.
 function buildVoucherNo(prefix, date, seq, bankAcct) {
   const compactDate = String(date || "").replace(/\//g, "");
-  const m = String(bankAcct || "").match(/(\d{3,4})$/);
-  const tag = m ? m[1] : "";
+  // Lấy 4 chữ số cuối trong mã hạch toán TK (VD "1121-VIETIN-11" → "2111") để phân biệt các ngân
+  // hàng khác nhau của cùng công ty. Nếu mã không có chữ số cuối rõ ràng (VD chỉ 1-2 số hoặc toàn
+  // chữ), băm cả chuỗi ra 4 số để không bao giờ để trống — tag rỗng dễ khiến 2 ngân hàng khác nhau
+  // bị trùng số chứng từ khi cùng ngày cùng thứ tự dòng.
+  const digits = String(bankAcct || "").replace(/\D/g, "");
+  let tag = digits.slice(-4);
+  if (!tag) {
+    let h = 0;
+    const s = String(bankAcct || "");
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    tag = String(h % 10000).padStart(4, "0");
+  }
   return `${prefix}${tag}${compactDate}${seq}`.slice(0, 20);
 }
 
@@ -1089,7 +1099,12 @@ function exportUNT(rows, coName, bankAcct, accountNo, bankName) {
     const header = ["Hiển thị trên sổ", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Nộp vào TK", "Mở tại NH", "Lý do thu", "Diễn giải lý do thu ", "Nhân viên thu", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Đối tượng", "Khoản mục CP", "Đơn vị", "Đối tượng THCP", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Mã thống kê", ""];
     const data = [header];
     confirmedIn.forEach((r, i) => {
-      const seq = i + 1;
+      // Dùng vị trí GỐC của giao dịch trong toàn bộ danh sách (không phải vị trí sau khi lọc)
+      // để số chứng từ luôn ổn định cho đúng 1 giao dịch đó qua nhiều lần xuất file — tránh 2 giao
+      // dịch khác nhau bị trùng số chứng từ (do i thay đổi theo số dòng đã xác nhận mỗi lần xuất),
+      // khiến MISA gộp nhầm nhiều giao dịch vào chung 1 chứng từ khi import.
+      const origIdx = rows.indexOf(r);
+      const seq = (origIdx >= 0 ? origIdx : i) + 1;
       const hach = r.confirmedHach || "131";
       // Luôn điền Mã đối tượng nếu GD đã có MST xác nhận, bất kể hạch toán là gì (VD hoàn tiền cọc
       // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
@@ -1165,7 +1180,12 @@ function exportUNC(rows, coName, bankAcct, accountNo, bankName) {
     const header = ["Hiển thị trên sổ", "Phương thức thanh toán", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Tài khoản chi", "Mở tại NH", "Nội dung thanh toán", "Diễn giải nội dung thanh toán", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Tài khoản nhận", "Tên NH nhận", "Người lĩnh tiền", "Số CMND", "Ngày cấp CMND", "Nơi cấp CMND", "Nhân viên", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Mã đối tượng (Chi tiết)", "Khoản mục chi phí", "Đơn vị", "ĐT tập hợp chi phí", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Chi phí không hợp lý", "Mã thống kê", "Diễn giải (Thuế)", "TK thuế GTGT", "Tiền thuế GTGT", "% thuế GTGT", "Tỷ lệ tính thuế (Thuế suất KHAC)", "Giá trị HHDV chưa thuế", "Mẫu số hóa đơn", "Ký hiệu hóa đơn", "Số hóa đơn", "Ngày hóa đơn", "Nhóm HHDV mua vào", "Mã NCC", "Tên NCC", "Mã số thuế NCC", ""];
     const data = [header];
     confirmedOut.forEach((r, i) => {
-      const seq = i + 1;
+      // Dùng vị trí GỐC của giao dịch trong toàn bộ danh sách (không phải vị trí sau khi lọc)
+      // để số chứng từ luôn ổn định cho đúng 1 giao dịch đó qua nhiều lần xuất file — tránh 2 giao
+      // dịch khác nhau bị trùng số chứng từ (do i thay đổi theo số dòng đã xác nhận mỗi lần xuất),
+      // khiến MISA gộp nhầm nhiều giao dịch vào chung 1 chứng từ khi import.
+      const origIdx = rows.indexOf(r);
+      const seq = (origIdx >= 0 ? origIdx : i) + 1;
       const hach = r.confirmedHach || "331";
       // Luôn điền Mã đối tượng nếu GD đã có MST xác nhận, bất kể hạch toán là gì (VD hoàn tiền cọc
       // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
