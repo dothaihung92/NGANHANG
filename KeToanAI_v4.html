@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.58";
+const APP_VERSION = "2026.07.05.59";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1141,6 +1141,7 @@ function exportUNC(rows, coName, bankAcct, accountNo, bankName) {
       row[5] = accountNo || "";
       row[6] = bankName || "";
       row[9] = maDoiTuong;
+      row[8] = (r.tx.desc || "").slice(0, 255);
       row[19] = (r.tx.desc || "").slice(0, 255);
       row[20] = hach;
       row[21] = bankAcct || "1121";
