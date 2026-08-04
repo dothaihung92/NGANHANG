@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.60";
+const APP_VERSION = "2026.07.05.61";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1095,6 +1095,39 @@ function exportUNT(rows, coName, bankAcct, accountNo, bankName) {
       // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
       // (khách lẻ) làm mặc định khi hạch toán 131/331 mà chưa có MST.
       const maDoiTuong = r.confirmedMST || (hach === "131" ? "KL" : "");
+      // GD đã "Tách BHXH" trên màn hình phải tách thành 3 dòng 3383/3384/3386 khi xuất UNT (VD hoàn
+      // tiền BHXH nộp thừa) — trước đây bị bỏ qua, xuất ra 1 dòng duy nhất với hạch toán gốc là sai.
+      if (r.isBhxh) {
+        const amt = r.tx.debit || r.tx.credit || 0;
+        const base = Math.round(amt / 0.32);
+        const p1 = Math.round(base * 0.255);
+        const p2 = Math.round(base * 0.045);
+        const p3 = amt - p1 - p2;
+        const parts = [
+          { hach: "3383", amt: p1, label: "BHXH 25.5%" },
+          { hach: "3384", amt: p2, label: "BHYT 4.5%" },
+          { hach: "3386", amt: p3, label: "BHTN 2%" }
+        ];
+        parts.forEach((p, idx) => {
+          const row = new Array(header.length).fill("");
+          const desc = `${r.tx.desc || ""} [${p.label}]`.slice(0, 255);
+          row[0] = "0";
+          row[1] = r.tx.date;
+          row[2] = r.tx.date;
+          row[3] = buildVoucherNo("UNT", r.tx.date, `${seq}.${idx+1}`, bankAcct);
+          row[4] = maDoiTuong;
+          row[7] = accountNo || "";
+          row[8] = bankName || "";
+          row[10] = desc;
+          row[12] = desc;
+          row[13] = bankAcct || "1121";
+          row[14] = p.hach;
+          row[15] = p.amt;
+          row[25] = seq;
+          data.push(row);
+        });
+        return;
+      }
       const row = new Array(header.length).fill("");
       row[0] = "0";
       row[1] = r.tx.date;
@@ -1138,6 +1171,40 @@ function exportUNC(rows, coName, bankAcct, accountNo, bankName) {
       // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
       // (khách lẻ) làm mặc định khi hạch toán 131/331 mà chưa có MST.
       const maDoiTuong = r.confirmedMST || (hach === "331" ? "KL" : "");
+      // GD đã "Tách BHXH" trên màn hình phải tách thành 3 dòng 3383/3384/3386 khi xuất UNC — trước
+      // đây bị bỏ qua, xuất ra 1 dòng duy nhất với hạch toán gốc (thường là 331) là sai.
+      if (r.isBhxh) {
+        const amt = r.tx.debit || r.tx.credit || 0;
+        const base = Math.round(amt / 0.32);
+        const p1 = Math.round(base * 0.255);
+        const p2 = Math.round(base * 0.045);
+        const p3 = amt - p1 - p2;
+        const parts = [
+          { hach: "3383", amt: p1, label: "BHXH 25.5%" },
+          { hach: "3384", amt: p2, label: "BHYT 4.5%" },
+          { hach: "3386", amt: p3, label: "BHTN 2%" }
+        ];
+        parts.forEach((p, idx) => {
+          const row = new Array(header.length).fill("");
+          const desc = `${r.tx.desc || ""} [${p.label}]`.slice(0, 255);
+          row[0] = "0";
+          row[1] = "0";
+          row[2] = r.tx.date;
+          row[3] = r.tx.date;
+          row[4] = buildVoucherNo("UNC", r.tx.date, `${seq}.${idx+1}`, bankAcct);
+          row[5] = accountNo || "";
+          row[6] = bankName || "";
+          row[9] = maDoiTuong;
+          row[8] = desc;
+          row[19] = desc;
+          row[20] = p.hach;
+          row[21] = bankAcct || "1121";
+          row[22] = p.amt;
+          row[47] = seq;
+          data.push(row);
+        });
+        return;
+      }
       const row = new Array(header.length).fill("");
       row[0] = "0";
       row[1] = "0";
