@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.59";
+const APP_VERSION = "2026.07.05.60";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1091,7 +1091,10 @@ function exportUNT(rows, coName, bankAcct, accountNo, bankName) {
     confirmedIn.forEach((r, i) => {
       const seq = i + 1;
       const hach = r.confirmedHach || "131";
-      const maDoiTuong = hach === "131" ? (r.confirmedMST || "KL") : "";
+      // Luôn điền Mã đối tượng nếu GD đã có MST xác nhận, bất kể hạch toán là gì (VD hoàn tiền cọc
+      // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
+      // (khách lẻ) làm mặc định khi hạch toán 131/331 mà chưa có MST.
+      const maDoiTuong = r.confirmedMST || (hach === "131" ? "KL" : "");
       const row = new Array(header.length).fill("");
       row[0] = "0";
       row[1] = r.tx.date;
@@ -1131,7 +1134,10 @@ function exportUNC(rows, coName, bankAcct, accountNo, bankName) {
     confirmedOut.forEach((r, i) => {
       const seq = i + 1;
       const hach = r.confirmedHach || "331";
-      const maDoiTuong = hach === "331" ? (r.confirmedMST || "KL") : "";
+      // Luôn điền Mã đối tượng nếu GD đã có MST xác nhận, bất kể hạch toán là gì (VD hoàn tiền cọc
+      // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
+      // (khách lẻ) làm mặc định khi hạch toán 131/331 mà chưa có MST.
+      const maDoiTuong = r.confirmedMST || (hach === "331" ? "KL" : "");
       const row = new Array(header.length).fill("");
       row[0] = "0";
       row[1] = "0";
