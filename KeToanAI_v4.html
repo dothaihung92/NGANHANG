@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.62";
+const APP_VERSION = "2026.07.05.63";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3977,9 +3977,11 @@ function ConfirmScreen({
     return ns;
   });
   const toggleBulkSelectAll = () => {
-    const pendingIds = filtered.filter(r => !r.confirmed).map(r => r.id);
-    const allSelected = pendingIds.length > 0 && pendingIds.every(id => bulkSelected.has(id));
-    setBulkSelected(allSelected ? new Set() : new Set(pendingIds));
+    // Chọn tất cả các dòng đang hiển thị theo bộ lọc hiện tại (kể cả dòng đã xác nhận,
+    // VD lọc "thiếu MST" để sửa hàng loạt), không giới hạn chỉ dòng chờ xử lý.
+    const ids = filtered.map(r => r.id);
+    const allSelected = ids.length > 0 && ids.every(id => bulkSelected.has(id));
+    setBulkSelected(allSelected ? new Set() : new Set(ids));
   };
   const clearBulkSelection = () => {
     setBulkSelected(new Set());
@@ -4106,7 +4108,7 @@ function ConfirmScreen({
         return;
       }
       if(e.altKey&&(e.key==="t"||e.key==="T")){e.preventDefault();if(filtered[focusIdx])overrideRow(filtered[focusIdx].id,"","Ti\u1EC1n m\u1EB7t","","1111");return;}
-      // Alt+A = Chọn tất cả (chờ xử lý) — chạy trước khi bị chặn bởi input/textarea để dùng được
+      // Alt+A = Chọn tất cả (các dòng đang lọc) — chạy trước khi bị chặn bởi input/textarea để dùng được
       // ngay cả khi đang gõ trong ô tìm kiếm (VD sau khi Alt+F vào ô lọc).
       if(e.altKey&&(e.key==="a"||e.key==="A")){e.preventDefault();toggleBulkSelectAll();return;}
       if(pickerFor)return;
@@ -5104,10 +5106,10 @@ function ConfirmScreen({
     }
   }, /*#__PURE__*/React.createElement("input", {
     type: "checkbox",
-    checked: filtered.some(r => !r.confirmed) && filtered.filter(r => !r.confirmed).every(r => bulkSelected.has(r.id)),
+    checked: filtered.length > 0 && filtered.every(r => bulkSelected.has(r.id)),
     onChange: toggleBulkSelectAll,
     style: { cursor: "pointer", width: 13, height: 13 }
-  }), "Ch\u1ECDn t\u1EA5t c\u1EA3 (ch\u1EDD x\u1EED l\xFD)"), /*#__PURE__*/React.createElement("span", {
+  }), "Ch\u1ECDn t\u1EA5t c\u1EA3 (\u0111ang l\u1ECDc)"), /*#__PURE__*/React.createElement("span", {
     style: {
       color: "var(--blue)",
       fontWeight: 500
