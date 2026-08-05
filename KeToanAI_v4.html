@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.66";
+const APP_VERSION = "2026.07.05.67";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -3955,6 +3955,23 @@ function ConfirmScreen({
   // nhập thiếu, cần cảnh báo để rà lại thay vì phát hiện lúc xuất UNT/UNC.
   const isMissingMstRow = r => r.confirmed === "yes" && (r.confirmedHach === "131" || r.confirmedHach === "331") && !r.confirmedMST;
   const missingMstCount = rows.filter(isMissingMstRow).length;
+
+  // Phát hiện hạch toán ngược chiều dòng tiền — dấu hiệu chọn nhầm hạch toán:
+  // • Dòng TIỀN VÀO (Có = confirmedHach) mà lại hạch toán 331 (phải trả người bán) hoặc TK loại 6
+  //   (chi phí) — tiền vào không thể là trả nợ hay chi phí.
+  // • Dòng TIỀN RA (Nợ = confirmedHach) mà lại hạch toán 131 (phải thu khách hàng) hoặc TK loại 5/7
+  //   (doanh thu/thu nhập khác) — tiền ra không thể là thu tiền hay doanh thu.
+  // Bỏ qua dòng chuyển khoản nội bộ ("X", đã hạch toán đủ 2 vế ở nơi khác) và dòng tách BHXH (322x/338x).
+  const isWrongDirectionHachRow = r => {
+    if (r.confirmed !== "yes" || !r.confirmedHach || r.confirmedHach === "X" || r.isBhxh) return false;
+    const hach = String(r.confirmedHach).trim();
+    const isIn = (r.tx.credit || 0) > 0;
+    const isOut = (r.tx.debit || 0) > 0;
+    if (isIn && (hach === "331" || hach.startsWith("6"))) return true;
+    if (isOut && (hach === "131" || hach.startsWith("5") || hach.startsWith("7"))) return true;
+    return false;
+  };
+  const wrongHachCount = rows.filter(isWrongDirectionHachRow).length;
   // Danh sách các mã hạch toán đã dùng (để lọc theo đúng 1 mã, VD lọc riêng "331" hoặc "1111")
   const usedHachCodes = [...new Set(rows.filter(r => r.confirmed === "yes" && r.confirmedHach).map(r => r.confirmedHach))].sort();
 
@@ -3965,6 +3982,7 @@ function ConfirmScreen({
     if (filter === "no" && r.confirmed !== "no") return false;
     if (filter === "mismatch" && !isMismatchRow(r)) return false;
     if (filter === "missingmst" && !isMissingMstRow(r)) return false;
+    if (filter === "wronghach" && !isWrongDirectionHachRow(r)) return false;
     if (hachFilter && r.confirmedHach !== hachFilter) return false;
     if (search && !r.tx.desc.toLowerCase().includes(search.toLowerCase()) && !(r.confirmedName || "").toLowerCase().includes(search.toLowerCase())) return false;
     return true;
@@ -4993,6 +5011,34 @@ function ConfirmScreen({
       marginLeft:"auto", fontSize:11, fontWeight:400,
       opacity: .85
     }}, filter === "missingmst" ? "→ Đang lọc — nhấn để bỏ" : "→ Nhấn để lọc và sửa")
+  ),
+  wrongHachCount > 0 && /*#__PURE__*/React.createElement("div", {
+    onClick: () => { setFilter(filter === "wronghach" ? "all" : "wronghach"); setFocusIdx(0); clearBulkSelection(); },
+    title: "Tiền vào mà hạch toán 331/loại 6 (chi phí), hoặc tiền ra mà hạch toán 131/loại 5,7 (doanh thu) — có thể chọn nhầm hạch toán, nhấn để lọc và kiểm tra lại",
+    style: {
+      background: filter === "wronghach" ? "#dc2626" : "#fee2e2",
+      border: "1px solid #fca5a5",
+      borderRadius: 8,
+      padding: "10px 16px",
+      marginBottom: 12,
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      color: filter === "wronghach" ? "#fff" : "#dc2626",
+      fontWeight: 600,
+      fontSize: 13,
+      transition: ".15s"
+    }
+  },
+    /*#__PURE__*/React.createElement("span", {style:{fontSize:18}}, "⚠️"),
+    /*#__PURE__*/React.createElement("span", null,
+      wrongHachCount + " giao dịch hạch toán có thể ngược chiều dòng tiền (VD tiền vào lại hạch toán 331/chi phí, hoặc tiền ra lại hạch toán 131/doanh thu)"
+    ),
+    /*#__PURE__*/React.createElement("span", {style:{
+      marginLeft:"auto", fontSize:11, fontWeight:400,
+      opacity: .85
+    }}, filter === "wronghach" ? "→ Đang lọc — nhấn để bỏ" : "→ Nhấn để lọc và kiểm tra")
   ),
   /*#__PURE__*/React.createElement("div", {
     style: {
