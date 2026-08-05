@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.67";
+const APP_VERSION = "2026.07.05.68";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -249,6 +249,19 @@ function fmt(n, currency) {
   if (!n && n !== 0) return "—";
   if(currency==="USD") return "$"+(Math.round(n*100)/100).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
   return Number(n).toLocaleString("vi-VN") + "đ";
+}
+// Đọc file Excel: SheetJS format ngày kiểu "raw:false" theo định dạng mặc định của máy/trình duyệt
+// (thường ra M/D/YY kiểu Mỹ) chứ không phải DD/MM/YYYY Việt Nam — khiến ngày bị đảo (VD 27/10/2025
+// hiển thành "10/27/25"). Đọc raw (giữ nguyên Date object) rồi tự format DD/MM/YYYY để luôn đúng.
+function xlsxCellToText(c) {
+  if (c instanceof Date && !isNaN(c)) {
+    // Dùng getUTC* vì SheetJS mã hoá ngày trong Excel là mốc UTC nửa đêm — dùng getDate() theo giờ
+    // máy sẽ bị lệch 1 ngày ở các múi giờ âm so với UTC.
+    const dd = String(c.getUTCDate()).padStart(2, "0");
+    const mm = String(c.getUTCMonth() + 1).padStart(2, "0");
+    return `${dd}/${mm}/${c.getUTCFullYear()}`;
+  }
+  return c === null || c === undefined ? "" : String(c);
 }
 function normVN(s) {
   return String(s || "").toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[đĐ]/g, "D").replace(/[^A-Z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
@@ -2840,8 +2853,8 @@ function CompanyScreen({
             const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {
               header: 1,
               defval: "",
-              raw: false
-            });
+              raw: true
+            }).map(r => r.map(xlsxCellToText));
             const txt = rowsToTabText(rows);
             if (sn.includes("SAO KE") || sn.includes("SAOKE") || sn.includes("BANK")) {
               skSheet = txt;
@@ -2888,8 +2901,8 @@ function CompanyScreen({
           const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
             header: 1,
             defval: "",
-            raw: false
-          });
+            raw: true
+          }).map(r => r.map(xlsxCellToText));
           const txt = rowsToTabText(rows);
           if (targetType === "saoke") setSaokeText(txt);else if (targetType === "dv") upd({
             dvText: txt
@@ -3709,7 +3722,7 @@ function ConfirmScreen({
       try {
         const data = new Uint8Array(e.target.result);
         const wb = XLSX.read(data, { type: "array", cellDates: true });
-        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: true }).map(r => r.map(xlsxCellToText));
         const txt = rows.filter(r => r.some(c => String(c).trim())).map(r => r.map(c => String(c || "").trim()).join("\t")).join("\n");
         setAddText(txt);
         const count = parseSaoke(txt, activeTabAcc ? activeTabAcc.currency : "VND").length;
