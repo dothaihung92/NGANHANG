@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.68";
+const APP_VERSION = "2026.07.05.69";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4181,9 +4181,12 @@ function ConfirmScreen({
       }
       if (e.key === "Enter" || e.key === "ArrowRight") {
         e.preventDefault();
-        // Nếu đang chọn nhiều dòng hàng loạt → Enter xác nhận cả lô (giống nút "Xác nhận đã chọn"),
-        // thay vì chỉ xử lý 1 dòng đang focus như trước.
-        if (bulkSelected.size > 1) { bulkConfirmSelected(); }
+        // Nếu đang có dòng nào được tick chọn (kể cả chỉ 1 dòng) → Enter xác nhận theo đúng thông tin
+        // đã điền ở khung "Đã chọn N dòng" phía trên (giống nút "Xác nhận đã chọn"). Trước đây chỉ
+        // dùng đường này khi chọn > 1 dòng, nên với đúng 1 dòng được tick + đã gõ MST/tên/hạch toán,
+        // Enter lại đi theo nhánh xác nhận "trống" (dùng gợi ý tự động, có thể không có) khiến MST đã
+        // nhập bị bỏ qua — phải bấm "Lưu GD này thôi" mới thực sự lưu.
+        if (bulkSelected.size >= 1) { bulkConfirmSelected(); }
         else if (filtered[focusIdx]) confirmRow(filtered[focusIdx].id, "yes", null, null, null, "");
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
