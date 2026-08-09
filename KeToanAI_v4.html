@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.70";
+const APP_VERSION = "2026.07.05.71";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4251,6 +4251,14 @@ function ConfirmScreen({
     const myIsCredit = (txRow.tx.credit||0) > 0;
     const myAmt = Math.max(txRow.tx.debit||0, txRow.tx.credit||0);
     const txDate = parseVNDateI(txRow.tx.date);
+    // TK đích khác loại tiền (VD TK VND ↔ TK USD, kiểu "mua ngoại tệ thanh toán") thì không thể so
+    // khớp đúng số tiền (một bên là VND, bên kia là USD, số không bao giờ bằng nhau) — chuyển sang so
+    // khớp theo ngày sát nhau (≤3 ngày) + nội dung diễn giải trùng nhiều từ đặc trưng (VD cùng số hoá
+    // đơn/tên đối tác) để vẫn nhận diện được, tránh ghép nhầm do chỉ so ngày không thôi.
+    const otherAcc = (co.accounts||[]).find(a => a.id === accId);
+    const myCurrency = activeTabAcc ? activeTabAcc.currency : "VND";
+    const crossCurrency = !!(otherAcc && otherAcc.currency && myCurrency && otherAcc.currency !== myCurrency);
+    const myWords = crossCurrency ? new Set(normVN(txRow.tx.desc).split(" ").filter(w => w.length >= 3 && !STOP.has(w))) : null;
     const oRows = getOtherRows(accId).filter(o => {
       // Chỉ loại các dòng đã CHẮC CHẮN xử lý xong (đã ghép nội bộ, hoặc đã gắn đúng hoá đơn/MST) —
       // KHÔNG loại các dòng chỉ mới bị gán tạm "Tiền mặt" (không MST, không phải nội bộ), vì đây
@@ -4260,6 +4268,14 @@ function ConfirmScreen({
       if (o.confirmed === "no") return false;
       if (myIsCredit ? !((o.tx.debit||0) > 0) : !((o.tx.credit||0) > 0)) return false;
       const oAmt = Math.max(o.tx.debit||0, o.tx.credit||0);
+      if (crossCurrency) {
+        if (!(oAmt > 0)) return false;
+        if (!txDate || !o.tx.date || Math.abs((txDate - parseVNDateI(o.tx.date)) / 86400000) > 3) return false;
+        const oWords = normVN(o.tx.desc).split(" ").filter(w => w.length >= 3 && !STOP.has(w));
+        if (!oWords.length || !myWords.size) return false;
+        const overlap = oWords.filter(w => myWords.has(w)).length;
+        return overlap / Math.max(myWords.size, oWords.length) >= 0.4;
+      }
       if (!(myAmt > 0 && oAmt > 0 && Math.abs(oAmt - myAmt) < 1)) return false;
       if (!txDate || !o.tx.date) return true;
       return Math.abs((txDate - parseVNDateI(o.tx.date)) / 86400000) <= 7;
