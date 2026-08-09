@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.69";
+const APP_VERSION = "2026.07.05.70";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -341,9 +341,13 @@ function parseSaoke(text, currency) {
   if (!rows.length) return [];
 
   // ── Detect header row ──────────────────────────────────────────────────────
+  // Bắt buộc ô ngắn (< 25 ký tự, giống các cột dbI/crI bên dưới) khi tìm "NGAY"/"NOI DUNG" — nếu
+  // không, một GIAO DỊCH THẬT (không phải dòng tiêu đề) có nội dung dài chứa chữ "NGAY" (VD "...
+  // INVOICE NGAY 11.06.2016...") sẽ bị nhận nhầm là dòng tiêu đề và bị loại bỏ toàn bộ ngay từ dòng
+  // đầu tiên, làm mất đúng giao dịch đó khi xử lý.
   const h = rows[0].map(c => normVN(c));
-  const dI  = h.findIndex(c => c.includes("NGAY") || c === "DATE");
-  const nI  = h.findIndex(c => c.includes("NOI DUNG") || c.includes("DIEN GIAI") || c.includes("CONTENT") || c.includes("MO TA") || c.includes("GIAO DICH"));
+  const dI  = h.findIndex(c => c.length < 25 && (c.includes("NGAY") || c === "DATE"));
+  const nI  = h.findIndex(c => c.length < 25 && (c.includes("NOI DUNG") || c.includes("DIEN GIAI") || c.includes("CONTENT") || c.includes("MO TA") || c.includes("GIAO DICH")));
   // Note: "CO" and "NO" are too short — match descriptions like "DAT COC", "CONG TY"
   // Use more specific patterns. Also require short cell (< 40 chars) to avoid matching descriptions
   const dbI = h.findIndex(c => c.length < 40 && (
