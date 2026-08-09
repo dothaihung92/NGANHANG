@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.72";
+const APP_VERSION = "2026.07.05.73";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1190,10 +1190,17 @@ async function exportUNT(rows, coName, bankAcct, accountNo, bankName, showToast)
     // giao dịch để quy đổi — không thể xuất thẳng số tiền USD vào cột "Số tiền" (vốn phải là VND).
     const usdRows = confirmedIn.filter(r => r.tx.currency === "USD");
     let vndOf = new Map(), fxFailed = [];
-    if (usdRows.length) {
-      if (showToast) showToast(`Đang lấy tỷ giá Vietcombank cho ${usdRows.length} giao dịch USD...`, "ok");
-      const conv = await convertUsdRowsToVnd(usdRows);
-      vndOf = conv.vndOf; fxFailed = conv.failed;
+    // Ưu tiên tỷ giá NGƯỜI DÙNG ĐÃ TỰ NHẬP/SỬA trên từng dòng (r.tyGia) — chỉ tự động gọi API lấy
+    // tỷ giá cho các dòng CHƯA có tỷ giá, để tránh gọi mạng không cần thiết và tôn trọng tỷ giá thực
+    // tế người dùng đã xác nhận theo chứng từ.
+    const usdManual = usdRows.filter(r => r.tyGia > 0);
+    const usdNeedFetch = usdRows.filter(r => !(r.tyGia > 0));
+    usdManual.forEach(r => vndOf.set(r.id, Math.round((r.tx.debit || r.tx.credit || 0) * r.tyGia)));
+    if (usdNeedFetch.length) {
+      if (showToast) showToast(`Đang lấy tỷ giá Vietcombank cho ${usdNeedFetch.length} giao dịch USD...`, "ok");
+      const conv = await convertUsdRowsToVnd(usdNeedFetch);
+      conv.vndOf.forEach((v, k) => vndOf.set(k, v));
+      fxFailed = conv.failed;
     }
     const header = ["Hiển thị trên sổ", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Nộp vào TK", "Mở tại NH", "Lý do thu", "Diễn giải lý do thu ", "Nhân viên thu", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Đối tượng", "Khoản mục CP", "Đơn vị", "Đối tượng THCP", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Mã thống kê", ""];
     const data = [header];
@@ -1290,10 +1297,17 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
     // thanh toán để quy đổi — không thể xuất thẳng số tiền USD vào cột "Số tiền" (vốn phải là VND).
     const usdRows = confirmedOut.filter(r => r.tx.currency === "USD");
     let vndOf = new Map(), fxFailed = [];
-    if (usdRows.length) {
-      if (showToast) showToast(`Đang lấy tỷ giá Vietcombank cho ${usdRows.length} giao dịch USD...`, "ok");
-      const conv = await convertUsdRowsToVnd(usdRows);
-      vndOf = conv.vndOf; fxFailed = conv.failed;
+    // Ưu tiên tỷ giá NGƯỜI DÙNG ĐÃ TỰ NHẬP/SỬA trên từng dòng (r.tyGia) — chỉ tự động gọi API lấy
+    // tỷ giá cho các dòng CHƯA có tỷ giá, để tránh gọi mạng không cần thiết và tôn trọng tỷ giá thực
+    // tế người dùng đã xác nhận theo chứng từ.
+    const usdManual = usdRows.filter(r => r.tyGia > 0);
+    const usdNeedFetch = usdRows.filter(r => !(r.tyGia > 0));
+    usdManual.forEach(r => vndOf.set(r.id, Math.round((r.tx.debit || r.tx.credit || 0) * r.tyGia)));
+    if (usdNeedFetch.length) {
+      if (showToast) showToast(`Đang lấy tỷ giá Vietcombank cho ${usdNeedFetch.length} giao dịch USD...`, "ok");
+      const conv = await convertUsdRowsToVnd(usdNeedFetch);
+      conv.vndOf.forEach((v, k) => vndOf.set(k, v));
+      fxFailed = conv.failed;
     }
     const header = ["Hiển thị trên sổ", "Phương thức thanh toán", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Tài khoản chi", "Mở tại NH", "Nội dung thanh toán", "Diễn giải nội dung thanh toán", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Tài khoản nhận", "Tên NH nhận", "Người lĩnh tiền", "Số CMND", "Ngày cấp CMND", "Nơi cấp CMND", "Nhân viên", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Mã đối tượng (Chi tiết)", "Khoản mục chi phí", "Đơn vị", "ĐT tập hợp chi phí", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Chi phí không hợp lý", "Mã thống kê", "Diễn giải (Thuế)", "TK thuế GTGT", "Tiền thuế GTGT", "% thuế GTGT", "Tỷ lệ tính thuế (Thuế suất KHAC)", "Giá trị HHDV chưa thuế", "Mẫu số hóa đơn", "Ký hiệu hóa đơn", "Số hóa đơn", "Ngày hóa đơn", "Nhóm HHDV mua vào", "Mã NCC", "Tên NCC", "Mã số thuế NCC", ""];
     const data = [header];
@@ -4535,6 +4549,13 @@ function ConfirmScreen({
     // saveNow is called automatically inside setRowsH above
   };
 
+  // Tỷ giá quy đổi USD→VND cho 1 giao dịch — lưu riêng trên dòng (không phụ thuộc trạng thái xác
+  // nhận) để dùng khi xuất UNT/UNC; ưu tiên tỷ giá đã lưu này thay vì tự động lấy qua mạng, vì tự
+  // lấy có thể lỗi (CORS/không có mạng) hoặc người dùng muốn dùng đúng tỷ giá ghi trên chứng từ.
+  const setRowTyGia = (id, tyGia) => {
+    setRowsH(prev => prev.map(r => r.id !== id ? r : { ...r, tyGia }));
+  };
+
   // Thêm dữ liệu sao kê mới vào phiên đang làm việc — lưu TRỰC TIẾP, không phụ thuộc ref timing
   const addMoreSaoke = async () => {
     if (!addText.trim() || addBusy) return;
@@ -5490,6 +5511,7 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     isSelected: bulkSelected.has(r.id),
     onToggleSelect: toggleBulkSelect,
     onFillBulk: fillBulkForm,
+    onSetTyGia: setRowTyGia,
     searchTerm: search
   }))));
 }
@@ -5666,6 +5688,7 @@ function ConfirmRow({
   internalSuggestion,
   onQuickInternal,
   onFillBulk,
+  onSetTyGia,
   searchTerm
 }) {
   // Close edit mode on global Esc event
@@ -5691,6 +5714,26 @@ function ConfirmRow({
   const [editKw, setEditKw] = useState(""); // keyword riêng cty này
   const [editKwGlobal, setEditKwGlobal] = useState(""); // keyword dùng chung
   const [dictKw, setDictKw] = useState("");
+  const [editTyGia, setEditTyGia] = useState(r.tyGia ? String(r.tyGia) : "");
+  const [tyGiaLoading, setTyGiaLoading] = useState(false);
+  React.useEffect(() => { setEditTyGia(r.tyGia ? String(r.tyGia) : ""); }, [r.tyGia]);
+  const saveTyGia = val => {
+    const n = parseNum(val);
+    setEditTyGia(val);
+    if (onSetTyGia) onSetTyGia(r.id, n > 0 ? n : undefined);
+  };
+  const lookupTyGia = async () => {
+    setTyGiaLoading(true);
+    try {
+      const rate = await fetchVCBRate(r.tx.date);
+      if (!rate) { alert("Không lấy được tỷ giá VCB cho ngày " + r.tx.date + " — hãy tự nhập tỷ giá."); return; }
+      const used = r.tx.debit > 0 ? rate.sell : rate.buy;
+      saveTyGia(String(used));
+    } catch (e) {
+      alert("Lỗi lấy tỷ giá: " + (e.message || e));
+    }
+    setTyGiaLoading(false);
+  };
   const best = r.t1_dict || r.t2_nameAmt || (r.invMatches && r.invMatches[0] ? {
     ...r.invMatches[0]
   } : null);
@@ -5872,6 +5915,33 @@ function ConfirmRow({
       padding: "4px 10px"
     }
   }, isDebit ? "Tiền ra: " + fmt(r.tx.debit, r.tx.currency) : "Tiền vào: " + fmt(r.tx.credit, r.tx.currency)),
+  // TK ngoại tệ (USD): tỷ giá quy đổi VND dùng khi xuất UNT/UNC. Tự lấy tỷ giá Vietcombank theo
+  // ngày làm gợi ý (có thể lỗi do mạng/CORS khi mở file trực tiếp bằng file://) nhưng luôn cho sửa
+  // tay — nhập tỷ giá thủ công không phụ thuộc mạng, chắc chắn đúng theo chứng từ thực tế.
+  r.tx.currency === "USD" && /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex", alignItems: "center", gap: 4,
+      background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 6,
+      padding: "2px 6px", fontSize: 11, color: "#3730a3"
+    }
+  },
+    "Tỷ giá:",
+    /*#__PURE__*/React.createElement("input", {
+      value: editTyGia,
+      onChange: e => saveTyGia(e.target.value),
+      placeholder: "VD 25470",
+      style: { width: 70, height: 20, fontSize: 11, border: "1px solid #c7d2fe", borderRadius: 4, padding: "0 4px" }
+    }),
+    /*#__PURE__*/React.createElement("button", {
+      onClick: lookupTyGia,
+      disabled: tyGiaLoading,
+      title: "Tự lấy tỷ giá Vietcombank theo ngày " + r.tx.date,
+      style: { height: 20, padding: "0 5px", fontSize: 10, border: "1px solid #c7d2fe", borderRadius: 4, background: "#fff", cursor: "pointer" }
+    }, tyGiaLoading ? "..." : "🔄 VCB"),
+    parseNum(editTyGia) > 0 && /*#__PURE__*/React.createElement("span", { style: { fontWeight: 600 } },
+      "= " + fmt(txAmt * parseNum(editTyGia), "VND")
+    )
+  ),
   hasMismatch && expectedAmt > 0 && /*#__PURE__*/React.createElement("span", {
     style: {
       background: "#fee2e2", color: "#dc2626", border: "1px solid #fca5a5",
