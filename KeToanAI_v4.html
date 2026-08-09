@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.71";
+const APP_VERSION = "2026.07.05.72";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1112,13 +1112,89 @@ function buildVoucherNo(prefix, date, seq, bankAcct, accountNo) {
   return `${prefix}${tag}${compactDate}${seq}`.slice(0, 30);
 }
 
-function exportUNT(rows, coName, bankAcct, accountNo, bankName) {
+// ── Tỷ giá Vietcombank theo ngày (dùng để quy đổi USD → VND khi xuất UNT/UNC) ──────────────────
+// Vietcombank không công bố tỷ giá vào cuối tuần/ngày lễ → nếu không có dữ liệu đúng ngày, lùi dần
+// tối đa 7 ngày trước đó để lấy tỷ giá gần nhất (đúng thông lệ kế toán khi ngày giao dịch rơi vào
+// ngày nghỉ). Đọc JSON linh hoạt theo nhiều tên trường có thể có vì API công khai của Vietcombank
+// không có tài liệu chính thức.
+const vcbRateCache = {};
+function toIsoDate(dateVN) {
+  const m = String(dateVN || "").match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (!m) return null;
+  return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+}
+function shiftIsoDate(iso, days) {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+async function fetchVCBRateForIso(iso) {
+  if (vcbRateCache[iso] !== undefined) return vcbRateCache[iso];
+  try {
+    const res = await fetch(`https://www.vietcombank.com.vn/api/exchangerates?date=${iso}`, { headers: { "Accept": "application/json" } });
+    if (!res.ok) { vcbRateCache[iso] = null; return null; }
+    const json = await res.json();
+    const list = json.Data || json.data || json.results || json.Results || [];
+    const num = v => { const n = parseFloat(String(v == null ? "" : v).replace(/,/g, "")); return isNaN(n) ? 0 : n; };
+    const item = list.find(x => {
+      const code = String(x.currencyCode || x.CurrencyCode || x.currency || x.Currency || "").toUpperCase();
+      return code === "USD";
+    });
+    if (!item) { vcbRateCache[iso] = null; return null; }
+    const buy = num(item.buy ?? item.Buy ?? item.buyTransfer ?? item.BuyTransfer ?? item.buy_transfer ?? item.transfer ?? item.Transfer ?? item.cash ?? item.Cash);
+    const sell = num(item.sell ?? item.Sell ?? item.sellTransfer ?? item.SellTransfer ?? item.sell_transfer);
+    const rate = (buy > 0 && sell > 0) ? { buy, sell } : null;
+    vcbRateCache[iso] = rate;
+    return rate;
+  } catch (e) {
+    vcbRateCache[iso] = null;
+    return null;
+  }
+}
+// Lấy tỷ giá tại ngày giao dịch (dd/mm/yyyy) — lùi tối đa 7 ngày nếu không có (cuối tuần/lễ).
+async function fetchVCBRate(dateVN) {
+  const iso0 = toIsoDate(dateVN);
+  if (!iso0) return null;
+  for (let back = 0; back <= 7; back++) {
+    const iso = shiftIsoDate(iso0, -back);
+    const rate = await fetchVCBRateForIso(iso);
+    if (rate) return rate;
+  }
+  return null;
+}
+// Quy đổi USD → VND cho toàn bộ các dòng USD trong danh sách, dùng tỷ giá BÁN RA cho tiền ra (chi
+// tiền thanh toán) và tỷ giá MUA VÀO cho tiền vào (thu tiền) — theo thông lệ phổ biến khi không có
+// tỷ giá ghi sổ riêng theo phương pháp bình quân gia quyền/NT-XT. Trả về Map id→số tiền VND đã quy
+// đổi, và mảng các dòng KHÔNG lấy được tỷ giá (cần bổ sung tỷ giá thủ công) để cảnh báo.
+async function convertUsdRowsToVnd(usdRows) {
+  const vndOf = new Map();
+  const failed = [];
+  for (const r of usdRows) {
+    const rate = await fetchVCBRate(r.tx.date);
+    const amt = r.tx.debit || r.tx.credit || 0;
+    if (!rate) { failed.push(r); continue; }
+    const usedRate = r.tx.debit > 0 ? rate.sell : rate.buy;
+    vndOf.set(r.id, Math.round(amt * usedRate));
+  }
+  return { vndOf, failed };
+}
+
+async function exportUNT(rows, coName, bankAcct, accountNo, bankName, showToast) {
   try {
     // Dòng bên kia của 1 giao dịch chuyển khoản nội bộ (hạch toán = "X") chỉ là placeholder tự động
     // đánh dấu — bên đã bấm xác nhận nội bộ đã hạch toán đủ cả 2 vế bằng mã TK thật rồi, đưa dòng "X"
     // này vào UNT sẽ ghi trùng 1 lần nữa nên phải loại bỏ.
     const confirmedIn = rows.filter(r => r.confirmed === "yes" && (r.tx.credit || 0) > 0 && r.confirmedHach !== "X");
     if (!confirmedIn.length) { alert("Không có giao dịch tiền vào đã xác nhận để xuất UNT."); return; }
+    // TK ngoại tệ (USD): sổ sách MISA ghi bằng VND, nên phải tự lấy tỷ giá Vietcombank tại đúng ngày
+    // giao dịch để quy đổi — không thể xuất thẳng số tiền USD vào cột "Số tiền" (vốn phải là VND).
+    const usdRows = confirmedIn.filter(r => r.tx.currency === "USD");
+    let vndOf = new Map(), fxFailed = [];
+    if (usdRows.length) {
+      if (showToast) showToast(`Đang lấy tỷ giá Vietcombank cho ${usdRows.length} giao dịch USD...`, "ok");
+      const conv = await convertUsdRowsToVnd(usdRows);
+      vndOf = conv.vndOf; fxFailed = conv.failed;
+    }
     const header = ["Hiển thị trên sổ", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Nộp vào TK", "Mở tại NH", "Lý do thu", "Diễn giải lý do thu ", "Nhân viên thu", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Đối tượng", "Khoản mục CP", "Đơn vị", "Đối tượng THCP", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Mã thống kê", ""];
     const data = [header];
     confirmedIn.forEach((r, i) => {
@@ -1133,10 +1209,15 @@ function exportUNT(rows, coName, bankAcct, accountNo, bankName) {
       // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
       // (khách lẻ) làm mặc định khi hạch toán 131/331 mà chưa có MST.
       const maDoiTuong = r.confirmedMST || (hach === "131" ? "KL" : "");
+      // Số tiền dùng để ghi sổ: nếu là TK USD và đã lấy được tỷ giá → dùng số VND đã quy đổi; nếu là
+      // TK USD nhưng KHÔNG lấy được tỷ giá (lỗi mạng/không có dữ liệu ngày đó) → vẫn giữ số USD gốc
+      // và cảnh báo cuối cùng để người dùng tự bổ sung tỷ giá, tránh xuất thiếu dòng.
+      const vndAmt = r.tx.currency === "USD" ? vndOf.get(r.id) : undefined;
+      const bookAmt = vndAmt !== undefined ? vndAmt : (r.tx.credit || 0);
       // GD đã "Tách BHXH" trên màn hình phải tách thành 3 dòng 3383/3384/3386 khi xuất UNT (VD hoàn
       // tiền BHXH nộp thừa) — trước đây bị bỏ qua, xuất ra 1 dòng duy nhất với hạch toán gốc là sai.
       if (r.isBhxh) {
-        const amt = r.tx.debit || r.tx.credit || 0;
+        const amt = bookAmt;
         const base = Math.round(amt / 0.32);
         const p1 = Math.round(base * 0.255);
         const p2 = Math.round(base * 0.045);
@@ -1178,7 +1259,7 @@ function exportUNT(rows, coName, bankAcct, accountNo, bankName) {
       row[12] = (r.tx.desc || "").slice(0, 255);
       row[13] = bankAcct || "1121";
       row[14] = hach;
-      row[15] = r.tx.credit || 0;
+      row[15] = bookAmt;
       row[25] = seq;
       data.push(row);
     });
@@ -1187,19 +1268,33 @@ function exportUNT(rows, coName, bankAcct, accountNo, bankName) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Chứng từ thu tiền");
     XLSX.writeFile(wb, `UNT_${coName}_${new Date().toLocaleDateString("vi-VN").replace(/\//g, "-")}.xlsx`);
+    if (fxFailed.length) {
+      alert(`⚠ Không lấy được tỷ giá Vietcombank cho ${fxFailed.length} giao dịch USD (lỗi mạng hoặc không có dữ liệu ngày đó):\n\n` +
+        fxFailed.map(r => `• ${r.tx.date} — ${(r.tx.desc||"").slice(0,60)}`).join("\n") +
+        `\n\nCác dòng này đã xuất TẠM bằng số USD gốc (chưa quy đổi) — hãy tự bổ sung tỷ giá và sửa lại cột Số tiền cho đúng.`);
+    }
   } catch (e) {
     alert("Lỗi xuất UNT: " + e.message);
     console.error(e);
   }
 }
 
-function exportUNC(rows, coName, bankAcct, accountNo, bankName) {
+async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast) {
   try {
     // Dòng bên kia của 1 giao dịch chuyển khoản nội bộ (hạch toán = "X") chỉ là placeholder tự động
     // đánh dấu — bên đã bấm xác nhận nội bộ đã hạch toán đủ cả 2 vế bằng mã TK thật rồi, đưa dòng "X"
     // này vào UNC sẽ ghi trùng 1 lần nữa nên phải loại bỏ.
     const confirmedOut = rows.filter(r => r.confirmed === "yes" && (r.tx.debit || 0) > 0 && r.confirmedHach !== "X");
     if (!confirmedOut.length) { alert("Không có giao dịch tiền ra đã xác nhận để xuất UNC."); return; }
+    // TK ngoại tệ (USD): sổ sách MISA ghi bằng VND, nên phải tự lấy tỷ giá Vietcombank tại đúng ngày
+    // thanh toán để quy đổi — không thể xuất thẳng số tiền USD vào cột "Số tiền" (vốn phải là VND).
+    const usdRows = confirmedOut.filter(r => r.tx.currency === "USD");
+    let vndOf = new Map(), fxFailed = [];
+    if (usdRows.length) {
+      if (showToast) showToast(`Đang lấy tỷ giá Vietcombank cho ${usdRows.length} giao dịch USD...`, "ok");
+      const conv = await convertUsdRowsToVnd(usdRows);
+      vndOf = conv.vndOf; fxFailed = conv.failed;
+    }
     const header = ["Hiển thị trên sổ", "Phương thức thanh toán", "Ngày hạch toán (*)", "Ngày chứng từ (*)", "Số chứng từ (*)", "Tài khoản chi", "Mở tại NH", "Nội dung thanh toán", "Diễn giải nội dung thanh toán", "Mã đối tượng", "Tên đối tượng", "Địa chỉ", "Tài khoản nhận", "Tên NH nhận", "Người lĩnh tiền", "Số CMND", "Ngày cấp CMND", "Nơi cấp CMND", "Nhân viên", "Diễn giải", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Mã đối tượng (Chi tiết)", "Khoản mục chi phí", "Đơn vị", "ĐT tập hợp chi phí", "Công trình", "Đơn đặt hàng", "Hợp đồng mua", "Hợp đồng bán", "Chi phí không hợp lý", "Mã thống kê", "Diễn giải (Thuế)", "TK thuế GTGT", "Tiền thuế GTGT", "% thuế GTGT", "Tỷ lệ tính thuế (Thuế suất KHAC)", "Giá trị HHDV chưa thuế", "Mẫu số hóa đơn", "Ký hiệu hóa đơn", "Số hóa đơn", "Ngày hóa đơn", "Nhóm HHDV mua vào", "Mã NCC", "Tên NCC", "Mã số thuế NCC", ""];
     const data = [header];
     confirmedOut.forEach((r, i) => {
@@ -1214,10 +1309,15 @@ function exportUNC(rows, coName, bankAcct, accountNo, bankName) {
       // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
       // (khách lẻ) làm mặc định khi hạch toán 131/331 mà chưa có MST.
       const maDoiTuong = r.confirmedMST || (hach === "331" ? "KL" : "");
+      // Số tiền dùng để ghi sổ: nếu là TK USD và đã lấy được tỷ giá → dùng số VND đã quy đổi; nếu là
+      // TK USD nhưng KHÔNG lấy được tỷ giá (lỗi mạng/không có dữ liệu ngày đó) → vẫn giữ số USD gốc
+      // và cảnh báo cuối cùng để người dùng tự bổ sung tỷ giá, tránh xuất thiếu dòng.
+      const vndAmt = r.tx.currency === "USD" ? vndOf.get(r.id) : undefined;
+      const bookAmt = vndAmt !== undefined ? vndAmt : (r.tx.debit || 0);
       // GD đã "Tách BHXH" trên màn hình phải tách thành 3 dòng 3383/3384/3386 khi xuất UNC — trước
       // đây bị bỏ qua, xuất ra 1 dòng duy nhất với hạch toán gốc (thường là 331) là sai.
       if (r.isBhxh) {
-        const amt = r.tx.debit || r.tx.credit || 0;
+        const amt = bookAmt;
         const base = Math.round(amt / 0.32);
         const p1 = Math.round(base * 0.255);
         const p2 = Math.round(base * 0.045);
@@ -1261,7 +1361,7 @@ function exportUNC(rows, coName, bankAcct, accountNo, bankName) {
       row[19] = (r.tx.desc || "").slice(0, 255);
       row[20] = hach;
       row[21] = bankAcct || "1121";
-      row[22] = r.tx.debit || 0;
+      row[22] = bookAmt;
       row[47] = seq;
       data.push(row);
     });
@@ -1270,6 +1370,11 @@ function exportUNC(rows, coName, bankAcct, accountNo, bankName) {
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Chứng từ Chi tiền gửi");
     XLSX.writeFile(wb, `UNC_${coName}_${new Date().toLocaleDateString("vi-VN").replace(/\//g, "-")}.xlsx`);
+    if (fxFailed.length) {
+      alert(`⚠ Không lấy được tỷ giá Vietcombank cho ${fxFailed.length} giao dịch USD (lỗi mạng hoặc không có dữ liệu ngày đó):\n\n` +
+        fxFailed.map(r => `• ${r.tx.date} — ${(r.tx.desc||"").slice(0,60)}`).join("\n") +
+        `\n\nCác dòng này đã xuất TẠM bằng số USD gốc (chưa quy đổi) — hãy tự bổ sung tỷ giá và sửa lại cột Số tiền cho đúng.`);
+    }
   } catch (e) {
     alert("Lỗi xuất UNC: " + e.message);
     console.error(e);
@@ -4934,13 +5039,13 @@ function ConfirmScreen({
     title:"Xuất chứng từ thu tiền (tiền vào) theo mẫu import MISA",
     onClick:()=>exportUNT(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []),
       (activeTabAcc&&activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc&&activeTabAcc.label),
-      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label))
+      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast)
   }, "\uD83D\uDCE5 Xuất UNT"),/*#__PURE__*/React.createElement("button",{
     className:"btn btn-outline",
     title:"Xuất chứng từ chi tiền gửi (tiền ra) theo mẫu import MISA",
     onClick:()=>exportUNC(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []),
       (activeTabAcc&&activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc&&activeTabAcc.label),
-      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label))
+      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast)
   }, "\uD83D\uDCE5 Xuất UNC"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-green",
     onClick: handleSaveAndLearn
