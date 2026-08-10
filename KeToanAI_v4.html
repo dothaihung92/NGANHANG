@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.83";
+const APP_VERSION = "2026.07.05.84";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4676,18 +4676,18 @@ function ConfirmScreen({
   const findTokhaiSuggestions = row => {
     if (!(row.tx.debit > 0)) return [];
     const descU = tkCore(row.tx.desc);
-    const amt = row.tx.debit || 0;
     return tokhaiList.filter(tk => {
       // KHÔNG loại tờ khai đã có GD gắn — 1 tờ khai có thể được trả làm nhiều lần khác ngày (đặt
       // cọc trước, trả nốt sau...), nên vẫn phải tiếp tục gợi ý cho các lần thanh toán tiếp theo.
+      // CHỈ gợi ý khi nội dung sao kê có nhắc rõ số hoá đơn hoặc số tờ khai — bỏ hẳn kiểu so khớp
+      // "gần đúng số tiền" (trước đây dung sai 5%) vì rất dễ trùng ngẫu nhiên với các giao dịch
+      // hoàn toàn không liên quan (VD trả nợ vay ngân hàng tình cờ có số tiền gần bằng 1 tờ khai
+      // nào đó) — thà bỏ sót còn hơn gợi ý sai. Không tìm thấy tự động thì dùng nút "📋 Chọn tờ khai"
+      // để tự tìm và gắn thủ công.
       const invCore = tkCore(tk.soHoaDon);
       if (invCore.length >= 4 && descU.includes(invCore)) return true;
       const tkSoCore = String(tk.toKhaiSo || "").replace(/\D/g, "");
       if (tkSoCore.length >= 6 && descU.includes(tkSoCore)) return true;
-      // So khớp gần đúng theo SỐ TIỀN CÒN LẠI CHƯA TRẢ (không phải tổng trị giá thuế) — để vẫn gợi
-      // ý đúng cho lần thanh toán thứ 2, 3... của cùng 1 tờ khai đã trả 1 phần trước đó.
-      const remain = tkTaxVND(tk) - tkTotalPaidVND(tk);
-      if (remain > 0 && amt > 0 && Math.abs(remain - amt) / remain <= 0.05) return true;
       return false;
     });
   };
