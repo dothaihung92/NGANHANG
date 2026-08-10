@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.80";
+const APP_VERSION = "2026.07.05.81";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1439,6 +1439,36 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
           row[47] = seq;
           data.push(row);
         });
+        return;
+      }
+      // GD đã gắn Tờ khai NK và bấm "Hạch toán chênh lệch tỷ giá" → tách thành 2 dòng trong cùng
+      // chứng từ, đúng bản chất kế toán (xem giải thích chi tiết ở applyFxDiff trong ConfirmScreen):
+      //  • LÃI (trả ít hơn ghi nhận): Nợ 331/Có ngân hàng (đúng số tiền đã trả) + Nợ 331/Có 515 (phần
+      //    chênh lệch còn lại để tất toán đủ công nợ ban đầu, không đụng đến tài khoản ngân hàng).
+      //  • LỖ (trả nhiều hơn ghi nhận): Nợ 331/Có ngân hàng (đúng số nợ gốc) + Nợ 635/Có ngân hàng
+      //    (phần trả thêm, đúng bằng khoản lỗ tỷ giá).
+      if (r.fxSplit) {
+        const { kind, taxVND, bankVND, diff } = r.fxSplit;
+        const desc = (r.tx.desc || "").slice(0, 255);
+        const mkRow = (idx, nRow, nCo, amt, label) => {
+          const row = new Array(header.length).fill("");
+          const d = `${desc} [${label}]`.slice(0, 255);
+          row[0] = "0"; row[1] = "0";
+          row[2] = r.tx.date; row[3] = r.tx.date;
+          row[4] = buildVoucherNo("UNC", r.tx.date, `${seq}.${idx}`, bankAcct, accountNo);
+          row[5] = accountNo || ""; row[6] = bankName || "";
+          row[9] = maDoiTuong; row[8] = d; row[19] = d;
+          row[20] = nRow; row[21] = nCo; row[22] = amt;
+          row[47] = seq;
+          data.push(row);
+        };
+        if (kind === "gain") {
+          mkRow(1, hach, bankAcct || "1121", bankVND, "Thanh toán");
+          mkRow(2, hach, "515", diff, "Lãi chênh lệch tỷ giá");
+        } else {
+          mkRow(1, hach, bankAcct || "1121", taxVND, "Thanh toán theo nợ gốc");
+          mkRow(2, "635", bankAcct || "1121", diff, "Lỗ chênh lệch tỷ giá");
+        }
         return;
       }
       const row = new Array(header.length).fill("");
@@ -4681,6 +4711,20 @@ function ConfirmScreen({
     setTokhaiModalOpen(false);
   };
   const openTokhaiPicker = rowId => { setTokhaiPickForRow(rowId); setTokhaiModalOpen(true); };
+  // Tự hạch toán chênh lệch tỷ giá khi tỷ giá thanh toán thực tế (bankVND) khác tỷ giá ghi nhận nợ
+  // ban đầu theo tờ khai (taxVND) — tách ngay trong CÙNG 1 chứng từ UNC thành 2 dòng khi xuất:
+  //  • Trả ÍT hơn ghi nhận (bankVND < taxVND) → LÃI: Nợ 331/Có ngân hàng (bankVND) + Nợ 331/Có 515 (chênh lệch)
+  //  • Trả NHIỀU hơn ghi nhận (bankVND > taxVND) → LỖ: Nợ 331/Có ngân hàng (taxVND) + Nợ 635/Có ngân hàng (chênh lệch)
+  // (xem xử lý chi tiết trong exportUNC — chỗ này chỉ lưu dữ liệu vào đúng dòng giao dịch).
+  const applyFxDiff = (rowId, taxVND, bankVND) => {
+    const diff = bankVND - taxVND;
+    if (!diff) { showToast("Không có chênh lệch để hạch toán"); return; }
+    const kind = diff < 0 ? "gain" : "loss";
+    setRowsH(prev => prev.map(r => r.id !== rowId ? r : {
+      ...r, fxSplit: { kind, taxVND, bankVND, diff: Math.abs(diff) }
+    }));
+    showToast("✓ Đã hạch toán chênh lệch tỷ giá " + (kind === "gain" ? "LÃI (515)" : "LỖ (635)") + ": " + fmt(Math.abs(diff), "VND"));
+  };
   // Nhập nhiều file tờ khai cùng lúc — nếu số tờ khai đã có sẵn trong danh sách (trùng số) thì bỏ
   // qua, không thêm lại lần nữa, để tránh nhân đôi khi người dùng lỡ chọn lại file cũ.
   const handleImportTokhai = async files => {
@@ -5701,13 +5745,14 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     onImportFile: handleImportTokhai,
     pickForRowId: tokhaiPickForRow,
     onPick: tkId => attachTokhai(tokhaiPickForRow, tkId),
+    onApplyFxDiff: applyFxDiff,
     showToast
   }));
 }
 
 // ── Bảng quản lý Tờ khai Hải quan NK: xem/sửa tay/nhập từ file tờ khai/xoá, và (khi mở ở chế độ
 // "chọn cho 1 giao dịch") cho chọn 1 tờ khai để gắn thẳng vào GD thanh toán đang xem trên sao kê ──
-function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick, showToast }) {
+function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick, onApplyFxDiff, showToast }) {
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
   const filtered = list.filter(tk => {
@@ -5810,18 +5855,19 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
                 React.createElement("th", { colSpan: 5, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TỜ KHAI HẢI QUAN NK"),
                 React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TRỊ GIÁ"),
                 React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#1d4ed8", background: "#eef2ff" } }, "CHỨNG TỪ NGÂN HÀNG"),
-                React.createElement("th", { colSpan: 2, style: { padding: "4px 8px" } }, "")
+                React.createElement("th", { colSpan: 3, style: { padding: "4px 8px" } }, "")
               ),
               React.createElement("tr", null,
                 th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 90), th("Số hoá đơn", 130), th("Ngày HĐ", 90),
                 th("Trị giá HĐ", 110), th("NT", 50), th("Tỷ giá thuế", 100), th("Trị giá thuế (VND)", 130),
                 th("Ngày TT", 90), th("Trị giá TT (NT)", 120), th("Tỷ giá TT", 100), th("Đồng Việt Nam TT", 130),
-                th("Chênh lệch", 110), th("", 60)
+                th("Chênh lệch VND", 120), th("Chênh lệch " + "NT", 100), th("", 130)
               )
             ),
             React.createElement("tbody", null, filtered.map(tk => {
               const taxVND = tkTaxVND(tk);
               const chenhLech = tk.linkedRowId && tk.bankVND ? tk.bankVND - taxVND : null;
+              const chenhLechNT = tk.linkedRowId && tk.bankAmt ? tk.bankAmt - (tk.triGiaHoaDon||0) : null;
               return React.createElement("tr", { key: tk.id },
                 td(React.createElement("input", { style: inputStyle, value: tk.nhaCungCap||"", onChange: e => updateField(tk.id, "nhaCungCap", e.target.value) })),
                 td(React.createElement("input", { style: inputStyle, value: tk.toKhaiSo||"", onChange: e => updateField(tk.id, "toKhaiSo", e.target.value) })),
@@ -5839,7 +5885,15 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
                 td(numInput(tk, "bankRate")),
                 td(numInput(tk, "bankVND")),
                 td(chenhLech !== null ? React.createElement("span", { style: { color: Math.abs(chenhLech) < 1000 ? "var(--green-d)" : "#dc2626", fontWeight: 600 } }, fmt(chenhLech, "VND")) : ""),
+                td(chenhLechNT !== null ? React.createElement("span", { style: { color: Math.abs(chenhLechNT) < 0.01 ? "var(--green-d)" : "#dc2626" } }, fmt(chenhLechNT, tk.currency||"USD")) : ""),
                 td(
+                  tk.linkedRowId && chenhLech && onApplyFxDiff && React.createElement("button", {
+                    onClick: () => onApplyFxDiff(tk.linkedRowId, taxVND, tk.bankVND),
+                    title: chenhLech < 0
+                      ? "Trả ÍT hơn ghi nhận → hạch toán LÃI chênh lệch tỷ giá (515)"
+                      : "Trả NHIỀU hơn ghi nhận → hạch toán LỖ chênh lệch tỷ giá (635)",
+                    style: { background: chenhLech < 0 ? "#16a34a" : "#dc2626", color: "#fff", border: "none", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontWeight: 600, marginRight: 4 }
+                  }, chenhLech < 0 ? "⚖ HT Lãi 515" : "⚖ HT Lỗ 635"),
                   pickForRowId && React.createElement("button", {
                     onClick: () => onPick(tk.id),
                     style: { background: "var(--green)", color: "#fff", border: "none", borderRadius: 5, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600, marginRight: 4 }
