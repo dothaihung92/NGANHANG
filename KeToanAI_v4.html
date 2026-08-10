@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.88";
+const APP_VERSION = "2026.07.05.89";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1928,7 +1928,8 @@ function App() {
     LS.del("inputdata_" + co.id);
     LS.del("inv_" + co.id);
     LS.del("sesidx_" + co.id);
-    // GIỮ NGUYÊN: dict_<coId> (từ điển), companies (tài khoản sao kê)
+    // GIỮ NGUYÊN: dict_<coId> (từ điển), companies (tài khoản sao kê), tokhai_<coId> (Tờ Khai NK) —
+    // dữ liệu tờ khai nhập độc lập với sao kê ngân hàng, xoá/nhập lại sao kê KHÔNG được xoá theo.
     // 4. Nếu đang ở công ty này, reset dữ liệu nhập trên màn hình
     setInputData(prev => (prev && prev._coId === co.id)
       ? {...prev, saokePer: {}, dvText: "", drText: "", step: 1}
@@ -2026,6 +2027,8 @@ function App() {
           LS.del("inv_" + co.id);
           LS.del("sesidx_" + co.id);
           LS.del("dict_" + co.id);
+          LS.del("tokhai_" + co.id); // Xoá HẲN công ty thì mới xoá luôn tờ khai — khác với "Xoá dữ
+          // liệu đã nhập" (clearCompanyInputData) chỉ xoá sao kê, PHẢI GIỮ tờ khai lại.
         } catch(e) {}
         saveCo(companies.filter(c => c.id !== co.id));
         cleanupOrphanStorage();
@@ -5815,16 +5818,34 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
 function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onApplyFxDiff, showToast }) {
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
+  // Tìm theo TỪNG CỘT riêng (VD chỉ lọc "Nhà cung cấp" chứa "NINGBO" VÀ "Ngày HĐ" chứa "03/2025"
+  // cùng lúc) — gõ vào ô nhỏ dưới mỗi tiêu đề cột tương ứng. Kết hợp AND với ô tìm kiếm chung ở trên.
+  const [colFilters, setColFilters] = useState({});
+  const setColFilter = (field, val) => setColFilters(prev => ({ ...prev, [field]: val }));
+  const colFilterInput = (field, w) => React.createElement("input", {
+    value: colFilters[field] || "",
+    onChange: e => setColFilter(field, e.target.value),
+    placeholder: "Lọc...",
+    style: { width: w || "100%", height: 22, fontSize: 11, border: "1px solid var(--border)", borderRadius: 4, padding: "0 5px", boxSizing: "border-box" }
+  });
   // Tìm theo tất cả các cột hiện trên bảng (không chỉ 3 cột như trước) — nhà cung cấp, số tờ khai,
   // ngày tờ khai, số hoá đơn, ngày HĐ, trị giá, tỷ giá, ghi chú... gõ bất kỳ phần nào cũng lọc được.
   const filtered = list.filter(tk => {
     const s = search.trim().toLowerCase();
-    if (!s) return true;
-    const haystack = [
-      tk.nhaCungCap, tk.toKhaiSo, tk.ngayToKhai, tk.soHoaDon, tk.ngayHoaDon,
-      tk.triGiaHoaDon, tk.currency, tk.tyGiaTinhThue, tk.ghiChu
-    ].map(v => String(v == null ? "" : v).toLowerCase()).join(" | ");
-    return haystack.includes(s);
+    if (s) {
+      const haystack = [
+        tk.nhaCungCap, tk.toKhaiSo, tk.ngayToKhai, tk.soHoaDon, tk.ngayHoaDon,
+        tk.triGiaHoaDon, tk.currency, tk.tyGiaTinhThue, tk.ghiChu
+      ].map(v => String(v == null ? "" : v).toLowerCase()).join(" | ");
+      if (!haystack.includes(s)) return false;
+    }
+    for (const field in colFilters) {
+      const fv = (colFilters[field] || "").trim().toLowerCase();
+      if (!fv) continue;
+      const cellVal = String(tk[field] == null ? "" : tk[field]).toLowerCase();
+      if (!cellVal.includes(fv)) return false;
+    }
+    return true;
   });
   const updateField = (id, field, raw) => {
     const numFields = { triGiaHoaDon: 1, tyGiaTinhThue: 1, bankAmt: 1, bankRate: 1, bankVND: 1 };
@@ -5972,6 +5993,19 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                 th("Trị giá HĐ", 110), th("NT", 50), th("Tỷ giá thuế", 100), th("Trị giá thuế (VND)", 130),
                 th("Ngày TT", 90), th("Trị giá TT (NT)", 120), th("Tỷ giá TT", 100), th("Đồng Việt Nam TT", 130),
                 th("VND", 110), th("NT", 90), th("Hạch toán chênh lệch", 150), th("", 100)
+              ),
+              // Dòng lọc riêng TỪNG CỘT — chỉ đặt cho các cột dữ liệu gốc (không đặt cho cột tính
+              // toán/mảng nhiều dòng như Chứng từ NH, Chênh lệch, Hạch toán).
+              React.createElement("tr", { style: { background: "#fafafa" } },
+                React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("nhaCungCap")),
+                React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("toKhaiSo")),
+                React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("ngayToKhai")),
+                React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("soHoaDon")),
+                React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("ngayHoaDon")),
+                React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("triGiaHoaDon")),
+                React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("currency")),
+                React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("tyGiaTinhThue")),
+                React.createElement("td", { colSpan: 8, style: { padding: "3px 6px" } })
               )
             ),
             React.createElement("tbody", null, filtered.map(tk => {
@@ -6754,7 +6788,7 @@ function ConfirmRow({
       style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }
     },
       /*#__PURE__*/React.createElement("span", { style: { color: "#3730a3" } },
-        "Tờ khai " + (tk.toKhaiSo||"") + " — " + (tk.nhaCungCap||"") + " — HĐ " + (tk.soHoaDon||"") + " — " + fmt(tk.triGiaHoaDon||0, tk.currency||"USD") + " — " + fmt(tkTaxVND(tk), "VND") +
+        "Tờ khai " + (tk.toKhaiSo||"") + " (" + (tk.ngayToKhai||"?") + ")" + " — " + (tk.nhaCungCap||"") + " — HĐ " + (tk.soHoaDon||"") + " — " + fmt(tk.triGiaHoaDon||0, tk.currency||"USD") + " — " + fmt(tkTaxVND(tk), "VND") +
         (tkPayments(tk).length ? " (đã trả " + tkPayments(tk).length + " lần, còn lại " + fmt(tkTaxVND(tk) - tkTotalPaidVND(tk), "VND") + ")" : "")
       ),
       /*#__PURE__*/React.createElement("button", {
