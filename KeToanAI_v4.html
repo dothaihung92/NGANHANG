@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.91";
+const APP_VERSION = "2026.07.05.92";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1501,9 +1501,12 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
 // Theo đúng mẫu "Chứng từ nghiệp vụ khác" của MISA — dùng cho khoản điều chỉnh KHÔNG phát sinh tiền
 // qua ngân hàng (chỉ là bút toán sổ sách), nên tách khỏi UNC/UNT để không ghi trùng/lệch số tiền chi
 // thực tế. Gom TẤT CẢ giao dịch đã bấm "⚖ Hạch toán chênh lệch" (r.fxSplit) thành 1 file xuất 1 lần.
-function exportFxDiff(rows, coName, bankAcct, accountNo) {
+function exportFxDiff(rows, coName, bankAcct, accountNo, onlyRowIds) {
   try {
-    const fxRows = rows.filter(r => r.confirmed === "yes" && r.fxSplit);
+    let fxRows = rows.filter(r => r.confirmed === "yes" && r.fxSplit);
+    // Chỉ xuất đúng các tờ khai NGƯỜI DÙNG ĐÃ TICK CHỌN trong bảng Tờ Khai NK (onlyRowIds) — nếu
+    // không truyền gì (gọi từ nút chung ở màn hình chính) thì vẫn xuất TẤT CẢ như trước.
+    if (onlyRowIds && onlyRowIds.size) fxRows = fxRows.filter(r => onlyRowIds.has(r.id));
     if (!fxRows.length) { alert("Không có giao dịch nào đã hạch toán chênh lệch tỷ giá để xuất."); return; }
     const header = ["Hiển thị trên sổ", "Ngày chứng từ (*)", "Ngày hạch toán (*)", "Số chứng từ (*)", "Diễn giải", "Hạn thanh toán", "Loại tiền", "Tỷ giá", "Diễn giải (Hạch toán)", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Số tiền quy đổi", "Đối tượng Nợ", "Đối tượng Có", "TK ngân hàng", "Khoản mục CP", "Đơn vị", "Đối tượng THCP", "Công trình", "Hợp đồng bán", "CP không hợp lý", "Mã thống kê", "Diễn giải (Thuế)", "TK thuế GTGT", "Tiền thuế GTGT", "% thuế GTGT", "Tỷ lệ tính thuế (Thuế suất KHAC)", "Giá trị HHDV chưa thuế", "Mẫu số HĐ", "Ngày hóa đơn", "Ký hiệu HĐ", "Số hóa đơn", "Nhóm HHDV mua vào", "Mã đối tượng thuế", "Tên đối tượng thuế", "Mã số thuế đối tượng thuế"];
     const data = [header];
@@ -4812,6 +4815,22 @@ function ConfirmScreen({
     }));
     showToast("✓ Đã hạch toán chênh lệch tỷ giá " + (kind === "gain" ? "LÃI (515)" : "LỖ (635)") + ": " + fmt(Math.abs(diff), "VND"));
   };
+  // Xuất lãi/lỗ tỷ giá CHỈ CHO CÁC TỜ KHAI ĐÃ TICK CHỌN trong bảng Tờ Khai NK — quy các tk.id đã
+  // chọn về đúng ID dòng giao dịch ngân hàng đang mang r.fxSplit (dòng thanh toán cuối/đóng nợ) rồi
+  // mới gọi exportFxDiff với đúng danh sách đó, tránh xuất nhầm cả những tờ khai chưa chọn.
+  const exportFxDiffForTk = tkIds => {
+    const rowIds = new Set();
+    tkIds.forEach(tkId => {
+      const tk = tokhaiList.find(t => t.id === tkId);
+      if (!tk) return;
+      tkPayments(tk).forEach(p => rowIds.add(p.rowId));
+    });
+    if (!rowIds.size) { showToast("Chưa có tờ khai nào được chọn có giao dịch để xuất", "warn"); return; }
+    exportFxDiff(rows, co && co.name || "export",
+      (activeTabAcc && activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc && activeTabAcc.label, activeTabAcc && activeTabAcc.currency, []),
+      (activeTabAcc && activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc && activeTabAcc.label),
+      rowIds);
+  };
   // Nhập nhiều file tờ khai cùng lúc — nếu số tờ khai đã có sẵn trong danh sách (trùng số) thì bỏ
   // qua, không thêm lại lần nữa, để tránh nhân đôi khi người dùng lỡ chọn lại file cũ.
   const handleImportTokhai = async files => {
@@ -5840,15 +5859,22 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     pickForRowDesc: tokhaiPickForRow ? (() => { const pr = rows.find(r => r.id === tokhaiPickForRow); return pr ? pr.tx.desc + " — Tiền ra: " + fmt(pr.tx.debit, pr.tx.currency) : ""; })() : "",
     onPick: tkId => attachTokhai(tokhaiPickForRow, tkId),
     onApplyFxDiff: applyFxDiff,
+    onExportFxDiff: exportFxDiffForTk,
     showToast
   }));
 }
 
 // ── Bảng quản lý Tờ khai Hải quan NK: xem/sửa tay/nhập từ file tờ khai/xoá, và (khi mở ở chế độ
 // "chọn cho 1 giao dịch") cho chọn 1 tờ khai để gắn thẳng vào GD thanh toán đang xem trên sao kê ──
-function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onApplyFxDiff, showToast }) {
+function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onApplyFxDiff, onExportFxDiff, showToast }) {
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
+  const [selectedTk, setSelectedTk] = useState(new Set());
+  const toggleSelectTk = id => setSelectedTk(prev => {
+    const ns = new Set(prev);
+    ns.has(id) ? ns.delete(id) : ns.add(id);
+    return ns;
+  });
   // Tìm theo TỪNG CỘT riêng (VD chỉ lọc "Nhà cung cấp" chứa "NINGBO" VÀ "Ngày HĐ" chứa "03/2025"
   // cùng lúc) — gõ vào ô nhỏ dưới mỗi tiêu đề cột tương ứng. Kết hợp AND với ô tìm kiếm chung ở trên.
   const [colFilters, setColFilters] = useState({});
@@ -6009,6 +6035,12 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
         React.createElement("input", { type: "file", accept: ".xlsx,.xls", multiple: true, style: { display: "none" }, onChange: handleFile, disabled: importing })
       ),
       React.createElement("button", { className: "btn btn-outline", style: { height: 32, fontSize: 12 }, onClick: addBlank }, "+ Thêm tay"),
+      onExportFxDiff && React.createElement("button", {
+        disabled: selectedTk.size === 0,
+        onClick: () => onExportFxDiff(selectedTk),
+        title: "Xuất bút toán lãi/lỗ chênh lệch tỷ giá CHỈ CHO các tờ khai đã tick chọn ở cột đầu bảng",
+        style: { height: 32, padding: "0 12px", borderRadius: 6, border: "1px solid #7c3aed", background: selectedTk.size ? "#7c3aed" : "#f3f0fa", color: selectedTk.size ? "#fff" : "#a78bda", cursor: selectedTk.size ? "pointer" : "not-allowed", fontSize: 12, fontWeight: 600 }
+      }, "⚖ Xuất lãi/lỗ đã chọn (" + selectedTk.size + ")"),
       React.createElement("button", { onClick: onClose, style: { height: 32, padding: "0 12px", borderRadius: 6, border: "1px solid var(--border)", background: "#fff", cursor: "pointer", fontSize: 13 } }, "Đóng")
     )
     ),
@@ -6018,6 +6050,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
         : React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
             React.createElement("thead", null,
               React.createElement("tr", null,
+                React.createElement("th", { style: { padding: "4px 8px" } }, ""),
                 React.createElement("th", { colSpan: 5, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TỜ KHAI HẢI QUAN NK"),
                 React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TRỊ GIÁ"),
                 React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#1d4ed8", background: "#eef2ff" } }, "CHỨNG TỪ NGÂN HÀNG"),
@@ -6025,6 +6058,17 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                 React.createElement("th", { colSpan: 2, style: { padding: "4px 8px" } }, "")
               ),
               React.createElement("tr", null,
+                React.createElement("th", { style: { padding: "4px 8px" } },
+                  React.createElement("input", {
+                    type: "checkbox",
+                    title: "Chọn tất cả (đang lọc)",
+                    checked: filtered.length > 0 && filtered.every(tk => selectedTk.has(tk.id)),
+                    onChange: () => {
+                      const allSelected = filtered.length > 0 && filtered.every(tk => selectedTk.has(tk.id));
+                      setSelectedTk(allSelected ? new Set() : new Set(filtered.map(tk => tk.id)));
+                    }
+                  })
+                ),
                 th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 115), th("Số hoá đơn", 130), th("Ngày HĐ", 115),
                 th("Trị giá HĐ", 110), th("NT", 50), th("Tỷ giá thuế", 100), th("Trị giá thuế (VND)", 130),
                 th("Ngày TT", 110), th("Trị giá TT (NT)", 120), th("Tỷ giá TT", 100), th("Đồng Việt Nam TT", 130),
@@ -6033,6 +6077,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
               // Dòng lọc riêng TỪNG CỘT — chỉ đặt cho các cột dữ liệu gốc (không đặt cho cột tính
               // toán/mảng nhiều dòng như Chứng từ NH, Chênh lệch, Hạch toán).
               React.createElement("tr", { style: { background: "#fafafa" } },
+                React.createElement("td", { style: { padding: "3px 6px" } }),
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("nhaCungCap")),
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("toKhaiSo")),
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("ngayToKhai")),
@@ -6041,7 +6086,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("triGiaHoaDon")),
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("currency")),
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("tyGiaTinhThue")),
-                React.createElement("td", { colSpan: 8, style: { padding: "3px 6px" } })
+                React.createElement("td", { colSpan: 9, style: { padding: "3px 6px" } })
               )
             ),
             React.createElement("tbody", null, filtered.map(tk => {
@@ -6053,6 +6098,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
               const chenhLechNT = payments.length ? totalBankAmt - (tk.triGiaHoaDon || 0) : null;
               const payRow = (key, child) => React.createElement("div", { key, style: { display: "flex", alignItems: "center", gap: 2, marginBottom: 2 } }, child);
               return React.createElement("tr", { key: tk.id },
+                td(React.createElement("input", { type: "checkbox", checked: selectedTk.has(tk.id), onChange: () => toggleSelectTk(tk.id) })),
                 td(React.createElement("input", { style: inputStyle, value: tk.nhaCungCap||"", onChange: e => updateField(tk.id, "nhaCungCap", e.target.value) })),
                 td(React.createElement("input", { style: inputStyle, value: tk.toKhaiSo||"", onChange: e => updateField(tk.id, "toKhaiSo", e.target.value) })),
                 td(React.createElement("input", { style: inputStyle, value: tk.ngayToKhai||"", onChange: e => updateField(tk.id, "ngayToKhai", e.target.value), placeholder: "dd/mm/yyyy" })),
