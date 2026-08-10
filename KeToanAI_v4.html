@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.89";
+const APP_VERSION = "2026.07.05.90";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -589,6 +589,13 @@ function parseToKhaiSheet(rows) {
 // khớp với công thức đơn giản này).
 function tkTaxVND(tk) {
   return Math.round((tk.triGiaHoaDon || 0) * (tk.tyGiaTinhThue || 0));
+}
+// Đổi ngày "dd/mm/yyyy" thành số YYYYMMDD để sắp xếp tăng dần — ngày trống/không hợp lệ xếp cuối
+// cùng (số rất lớn) thay vì lẫn lộn ở đầu danh sách.
+function tkDateVal(d) {
+  const m = String(d || "").match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return 99999999;
+  return parseInt(m[3] + m[2].padStart(2, "0") + m[1].padStart(2, "0"), 10);
 }
 // 1 tờ khai có thể được thanh toán làm NHIỀU LẦN, khác ngày (trả trước/trả nhiều đợt) — danh sách
 // các lần thanh toán đã gắn lưu trong tk.payments (mảng). Giữ khả năng đọc dữ liệu CŨ (khi 1 tờ
@@ -5846,6 +5853,11 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
       if (!cellVal.includes(fv)) return false;
     }
     return true;
+  }).sort((a, b) => {
+    // Sắp xếp theo Ngày tờ khai TĂNG DẦN (cũ → mới) để dễ theo dõi tiến độ trả nợ theo thời gian.
+    const da = tkDateVal(a.ngayToKhai), db = tkDateVal(b.ngayToKhai);
+    if (da !== db) return da - db;
+    return 0;
   });
   const updateField = (id, field, raw) => {
     const numFields = { triGiaHoaDon: 1, tyGiaTinhThue: 1, bankAmt: 1, bankRate: 1, bankVND: 1 };
