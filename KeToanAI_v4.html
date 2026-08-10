@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.74";
+const APP_VERSION = "2026.07.05.75";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4661,18 +4661,33 @@ function ConfirmScreen({
     setTokhaiModalOpen(false);
   };
   const openTokhaiPicker = rowId => { setTokhaiPickForRow(rowId); setTokhaiModalOpen(true); };
-  const handleImportTokhai = async file => {
-    if (!file) return;
-    try {
-      const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array" });
-      const parsed = parseToKhaiWorkbook(wb);
-      if (!parsed) { showToast("Không đọc được dữ liệu tờ khai từ file này", "warn"); return; }
-      saveTokhaiList([...tokhaiList, parsed]);
-      showToast("✓ Đã nhập tờ khai " + parsed.toKhaiSo);
-    } catch (e) {
-      showToast("Lỗi đọc file tờ khai: " + (e.message || e), "warn");
+  // Nhập nhiều file tờ khai cùng lúc — nếu số tờ khai đã có sẵn trong danh sách (trùng số) thì bỏ
+  // qua, không thêm lại lần nữa, để tránh nhân đôi khi người dùng lỡ chọn lại file cũ.
+  const handleImportTokhai = async files => {
+    const fileArr = Array.from(files || []);
+    if (!fileArr.length) return;
+    let list = tokhaiList;
+    let added = 0, skipped = 0, failed = 0;
+    for (const file of fileArr) {
+      try {
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: "array" });
+        const parsed = parseToKhaiWorkbook(wb);
+        if (!parsed) { failed++; continue; }
+        const isDup = list.some(t => t.toKhaiSo && parsed.toKhaiSo && t.toKhaiSo === parsed.toKhaiSo);
+        if (isDup) { skipped++; continue; }
+        list = [...list, parsed];
+        added++;
+      } catch (e) {
+        failed++;
+      }
     }
+    if (added) saveTokhaiList(list);
+    const parts = [];
+    if (added) parts.push(`✓ Đã nhập ${added} tờ khai mới`);
+    if (skipped) parts.push(`bỏ qua ${skipped} tờ khai trùng số`);
+    if (failed) parts.push(`lỗi ${failed} file không đọc được`);
+    showToast(parts.join(", ") || "Không nhập được tờ khai nào", added ? "ok" : "warn");
   };
 
   // Fix amount directly from raw sao ke text — clears rawAmt so mismatch won't re-trigger
@@ -5693,35 +5708,41 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
   const addBlank = () => {
     onSave([...list, { id: uid(), toKhaiSo: "", ngayToKhai: "", nhaCungCap: "", soHoaDon: "", ngayHoaDon: "", triGiaHoaDon: 0, currency: "USD", tyGiaTinhThue: 0, trigiaTinhThueVND: 0, ghiChu: "", created: new Date().toLocaleDateString("vi-VN") }]);
   };
+  // Esc để đóng khung — giống các popup khác trong phần mềm.
+  React.useEffect(() => {
+    const h = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
   const handleFile = async e => {
-    const file = e.target.files[0];
+    const files = e.target.files;
     e.target.value = "";
-    if (!file) return;
+    if (!files || !files.length) return;
     setImporting(true);
-    try { await onImportFile(file); } finally { setImporting(false); }
+    try { await onImportFile(files); } finally { setImporting(false); }
   };
-  const inputStyle = { width: "100%", border: "1px solid transparent", background: "transparent", font: "inherit", padding: "3px 4px", borderRadius: 4, boxSizing: "border-box" };
-  const th = (label, w) => React.createElement("th", { style: { padding: "6px 8px", textAlign: "left", fontSize: 11, color: "var(--text2)", borderBottom: "2px solid var(--border)", width: w, whiteSpace: "nowrap" } }, label);
-  const td = (...children) => React.createElement("td", { style: { padding: "2px 4px", borderBottom: "1px solid #eee", fontSize: 12, verticalAlign: "top" } }, ...children);
+  const inputStyle = { width: "100%", border: "1px solid transparent", background: "transparent", font: "inherit", fontSize: 13, padding: "5px 6px", borderRadius: 4, boxSizing: "border-box" };
+  const th = (label, w) => React.createElement("th", { style: { padding: "8px 10px", textAlign: "left", fontSize: 12, color: "var(--text2)", borderBottom: "2px solid var(--border)", width: w, whiteSpace: "nowrap" } }, label);
+  const td = (...children) => React.createElement("td", { style: { padding: "3px 6px", borderBottom: "1px solid #eee", fontSize: 13, verticalAlign: "top" } }, ...children);
 
   return React.createElement("div", {
-    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 },
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 0 },
     onClick: onClose
   }, React.createElement("div", {
-    style: { background: "#fff", borderRadius: 12, width: "96vw", maxWidth: 1500, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,.3)" },
+    style: { background: "#fff", borderRadius: 0, width: "100vw", maxWidth: "100vw", height: "100vh", maxHeight: "100vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,.3)" },
     onClick: e => e.stopPropagation()
   },
     React.createElement("div", { style: { padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" } },
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, "📋 Tờ Khai Hải quan NK"),
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 16 } }, "📋 Tờ Khai Hải quan NK"),
       pickForRowId && React.createElement("div", { style: { background: "#eef2ff", color: "#3730a3", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600 } }, "Đang chọn tờ khai để gắn vào giao dịch thanh toán — bấm \"✓ Chọn\" ở dòng phù hợp"),
       React.createElement("input", {
         value: search, onChange: e => setSearch(e.target.value),
-        placeholder: "Tìm số tờ khai / nhà cung cấp / số hoá đơn...",
-        style: { flex: 1, minWidth: 200, height: 32, fontSize: 13, borderRadius: 6, border: "1px solid var(--border)", padding: "0 10px" }
+        placeholder: "🔍 Tìm số tờ khai / nhà cung cấp / số hoá đơn...",
+        style: { flex: 1, minWidth: 260, height: 34, fontSize: 13, borderRadius: 6, border: "1px solid var(--border)", padding: "0 10px" }
       }),
       React.createElement("label", { className: "btn btn-outline", style: { height: 32, display: "inline-flex", alignItems: "center", cursor: "pointer", fontSize: 12 } },
-        importing ? "Đang đọc..." : "📥 Nhập từ file Tờ khai (Excel)",
-        React.createElement("input", { type: "file", accept: ".xlsx,.xls", style: { display: "none" }, onChange: handleFile, disabled: importing })
+        importing ? "Đang đọc..." : "📥 Nhập nhiều file Tờ khai (Excel)",
+        React.createElement("input", { type: "file", accept: ".xlsx,.xls", multiple: true, style: { display: "none" }, onChange: handleFile, disabled: importing })
       ),
       React.createElement("button", { className: "btn btn-outline", style: { height: 32, fontSize: 12 }, onClick: addBlank }, "+ Thêm tay"),
       React.createElement("button", { onClick: onClose, style: { height: 32, padding: "0 12px", borderRadius: 6, border: "1px solid var(--border)", background: "#fff", cursor: "pointer", fontSize: 13 } }, "Đóng")
