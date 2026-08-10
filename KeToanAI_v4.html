@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.86";
+const APP_VERSION = "2026.07.05.87";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4721,11 +4721,21 @@ function ConfirmScreen({
   // "7477.50USD") — dò lấy ra để điền sẵn cột "Trị giá TT (NT)" của bảng Tờ Khai NK, người dùng vẫn
   // sửa tay lại được nếu dò sai/không tìm thấy.
   const extractForeignAmt = (desc, currency) => {
-    const cur = (currency || "USD").toUpperCase();
-    const re = new RegExp("(?:" + cur + "\\s*([\\d.,]+)|([\\d.,]+)\\s*\\*?\\s*" + cur + ")", "i");
-    const m = String(desc || "").match(re);
-    if (!m) return 0;
-    return parseNum(m[1] || m[2] || "", true);
+    // "currency" (ô "NT") là ô người dùng tự gõ tay trong bảng Tờ Khai NK — nếu gõ ký tự đặc biệt
+    // (VD dấu ngoặc, dấu +) sẽ làm hỏng biểu thức chính quy (RegExp) và LÀM SẬP TOÀN BỘ TRANG (vì
+    // hàm này chạy lại mỗi lần render qua tokhaiSuggestions, không phải chỉ khi bấm nút) — phải
+    // escape ký tự đặc biệt VÀ bọc try/catch để không bao giờ làm crash cả ứng dụng chỉ vì 1 ô nhập
+    // liệu currency bị gõ sai.
+    try {
+      const cur = (currency || "USD").toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (!cur) return 0;
+      const re = new RegExp("(?:" + cur + "\\s*([\\d.,]+)|([\\d.,]+)\\s*\\*?\\s*" + cur + ")", "i");
+      const m = String(desc || "").match(re);
+      if (!m) return 0;
+      return parseNum(m[1] || m[2] || "", true);
+    } catch (e) {
+      return 0;
+    }
   };
   // 1 tờ khai có thể gắn với NHIỀU giao dịch thanh toán khác ngày (trả cọc trước, trả nốt sau...)
   // — mỗi lần gắn sẽ THÊM một lần thanh toán mới vào danh sách (payments), không còn ghi đè/chỉ cho
@@ -7652,6 +7662,51 @@ function DictScreen({
     }
   }, filtered.length, "/", dict.length, " t\u1EEB kho\xE1 \xB7 S\u1EAFp theo s\u1ED1 l\u1EA7n d\xF9ng"));
 }
-ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElementById("root"));</script>
+// Bọc toàn bộ app trong 1 lớp bắt lỗi (Error Boundary) — trước đây nếu có bất kỳ lỗi JS nào xảy ra
+// lúc render (VD 1 ô nhập liệu tự do bị gõ ký tự đặc biệt làm hỏng regex ở đâu đó), React sẽ crash
+// TOÀN BỘ trang thành 1 màn hình trắng không có bất kỳ thông báo nào, không biết đường nào mà sửa.
+// Giờ sẽ hiện màn hình lỗi rõ ràng kèm nút "Tải lại trang" và nút sao chép chi tiết lỗi để gửi báo lỗi.
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    this.setState({ error, info });
+  }
+  render() {
+    if (this.state.error) {
+      const detail = (this.state.error && (this.state.error.stack || this.state.error.message || String(this.state.error))) +
+        (this.state.info && this.state.info.componentStack ? "\n" + this.state.info.componentStack : "");
+      return React.createElement("div", {
+        style: { padding: "2rem", maxWidth: 700, margin: "40px auto", fontFamily: "sans-serif" }
+      },
+        React.createElement("div", { style: { fontSize: 20, fontWeight: 700, color: "#dc2626", marginBottom: 10 } }, "⚠ Phần mềm gặp lỗi khi hiển thị"),
+        React.createElement("div", { style: { fontSize: 14, color: "#444", marginBottom: 16 } },
+          "Đã xảy ra lỗi ngoài dự kiến. Dữ liệu đã lưu KHÔNG bị mất — hãy thử tải lại trang trước. " +
+          "Nếu vẫn lỗi, bấm \"Sao chép chi tiết lỗi\" và gửi cho người hỗ trợ."
+        ),
+        React.createElement("div", { style: { display: "flex", gap: 10, marginBottom: 16 } },
+          React.createElement("button", {
+            onClick: () => window.location.reload(),
+            style: { padding: "8px 16px", borderRadius: 6, border: "none", background: "var(--green,#1a7a4a)", color: "#fff", fontWeight: 600, cursor: "pointer" }
+          }, "🔄 Tải lại trang"),
+          React.createElement("button", {
+            onClick: () => { navigator.clipboard && navigator.clipboard.writeText(detail); alert("Đã sao chép chi tiết lỗi"); },
+            style: { padding: "8px 16px", borderRadius: 6, border: "1px solid #ccc", background: "#fff", cursor: "pointer" }
+          }, "📋 Sao chép chi tiết lỗi")
+        ),
+        React.createElement("pre", {
+          style: { background: "#f5f5f5", padding: 12, borderRadius: 6, fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 300, overflow: "auto" }
+        }, detail)
+      );
+    }
+    return this.props.children;
+  }
+}
+ReactDOM.render(/*#__PURE__*/React.createElement(AppErrorBoundary, null, React.createElement(App, null)), document.getElementById("root"));</script>
 </body>
 </html>
