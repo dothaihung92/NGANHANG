@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.73";
+const APP_VERSION = "2026.07.05.74";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -205,6 +205,15 @@ function saveCoInvoices(coId, invDV, invDR) {
 function getCoInvoices(coId) {
   const v = LS.get("inv_" + coId);
   return v || { invDV: [], invDR: [] };
+}
+
+// Danh sách Tờ khai Hải quan NK dùng chung cho cả công ty (không theo từng tài khoản NH) — dùng để
+// gợi ý/gắn vào giao dịch thanh toán ngoại tệ khi đối chiếu sao kê.
+function saveCoToKhai(coId, list) {
+  try { LS.set("tokhai_" + coId, list || []); } catch (e) {}
+}
+function getCoToKhai(coId) {
+  return LS.get("tokhai_" + coId) || [];
 }
 
 // Ước lượng dung lượng localStorage đang dùng (KB)
@@ -517,6 +526,70 @@ function parseInv(text, currency) {
     };
   }).filter(r => r.so_hd || r.ten_cty);
 }
+
+// ── Đọc file Tờ khai Hải quan (VNACCS) để tự điền vào bảng "Tờ Khai NK" ─────────────────────────
+// File tờ khai xuất từ hệ thống hải quan là 1 form nhiều trang (sheet "TKN"), nhãn và giá trị nằm
+// XEN KẼ trên cùng 1 dòng (không phải bảng cột cố định như sao kê/hoá đơn) — nên phải dò theo NHÃN
+// (label) thay vì vị trí cột. Một số nhãn (VD "Tên") xuất hiện NHIỀU LẦN trong file (của cả "Người
+// nhập khẩu" lẫn "Người xuất khẩu") nên phải tìm đúng nhãn cha trước rồi mới tìm nhãn con sau đó.
+function tkFindLabelRow(rows, label, fromIdx) {
+  for (let i = fromIdx || 0; i < rows.length; i++) {
+    if (rows[i].some(c => typeof c === "string" && c.trim() === label)) return i;
+  }
+  return -1;
+}
+function tkValuesAfterLabel(row, label) {
+  if (!row) return [];
+  const idx = row.findIndex(c => typeof c === "string" && c.trim() === label);
+  if (idx < 0) return [];
+  return row.slice(idx + 1).filter(c => c !== null && c !== undefined && String(c).trim() !== "");
+}
+function tkLabelValue(rows, label, nth) {
+  const idx = tkFindLabelRow(rows, label, 0);
+  if (idx < 0) return null;
+  const vals = tkValuesAfterLabel(rows[idx], label);
+  return vals[nth || 0] !== undefined ? vals[nth || 0] : null;
+}
+const TK_CURRENCIES = ["USD", "EUR", "CNY", "JPY", "GBP", "KRW", "HKD", "SGD", "THB", "AUD", "CAD", "VND"];
+function parseToKhaiSheet(rows) {
+  const toKhaiSo = tkLabelValue(rows, "Số tờ khai", 0);
+  if (!toKhaiSo) return null; // không tìm thấy nhãn cốt lõi → chắc chắn không phải file tờ khai hợp lệ
+  const ngayDangKyRaw = String(tkLabelValue(rows, "Ngày đăng ký", 0) || "");
+  const ngayToKhai = (ngayDangKyRaw.match(/\d{1,2}\/\d{1,2}\/\d{4}/) || [""])[0];
+  const soHoaDon = tkLabelValue(rows, "Số hóa đơn", 0) || "";
+  const ngayHoaDon = String(tkLabelValue(rows, "Ngày phát hành", 0) || "");
+  const tongTriGiaIdx = tkFindLabelRow(rows, "Tổng trị giá hóa đơn", 0);
+  const tongTriGiaVals = tongTriGiaIdx >= 0 ? tkValuesAfterLabel(rows[tongTriGiaIdx], "Tổng trị giá hóa đơn") : [];
+  const descPart = String(tongTriGiaVals[0] || "").toUpperCase();
+  const currency = TK_CURRENCIES.find(c => descPart.includes(c)) || "USD";
+  const triGiaHoaDon = parseNum(tongTriGiaVals[1], currency !== "VND");
+  const trigiaTinhThueVND = parseNum(tkLabelValue(rows, "Tổng trị giá tính thuế", 0), false);
+  // "Tỷ giá tính thuế" nằm chung dòng với nhiều mã thuế khác — số tỷ giá luôn là giá trị CUỐI CÙNG
+  // còn lại trên dòng đó (sau các mã tiền tệ/gạch ngang), lấy từ cuối cho ổn định hơn lấy theo nhãn.
+  const tgttIdx = tkFindLabelRow(rows, "Tỷ giá tính thuế", 0);
+  let tyGiaTinhThue = 0;
+  if (tgttIdx >= 0) {
+    const nonEmpty = rows[tgttIdx].filter(c => c !== null && c !== undefined && String(c).trim() !== "");
+    tyGiaTinhThue = parseNum(nonEmpty[nonEmpty.length - 1], false);
+  }
+  // Người xuất khẩu (nhà cung cấp nước ngoài) — tìm đúng nhãn "Tên" xuất hiện SAU nhãn "Người xuất
+  // khẩu", không lấy nhầm "Tên" của "Người nhập khẩu" (chính công ty mình) nằm phía trên.
+  const nxkIdx = tkFindLabelRow(rows, "Người xuất khẩu", 0);
+  const tenIdx = nxkIdx >= 0 ? tkFindLabelRow(rows, "Tên", nxkIdx + 1) : -1;
+  const nhaCungCap = tenIdx >= 0 ? (tkValuesAfterLabel(rows[tenIdx], "Tên")[0] || "") : "";
+  const ghiChu = String(tkLabelValue(rows, "Phần ghi chú", 0) || "");
+  return {
+    id: uid(), toKhaiSo: String(toKhaiSo), ngayToKhai, nhaCungCap: String(nhaCungCap).trim(),
+    soHoaDon: String(soHoaDon).trim(), ngayHoaDon: (ngayHoaDon.match(/\d{1,2}\/\d{1,2}\/\d{4}/) || [""])[0],
+    triGiaHoaDon, currency, tyGiaTinhThue, trigiaTinhThueVND, ghiChu, created: new Date().toLocaleDateString("vi-VN")
+  };
+}
+function parseToKhaiWorkbook(wb) {
+  const sheetName = wb.SheetNames.find(n => n.toUpperCase() === "TKN") || wb.SheetNames[0];
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
+  return parseToKhaiSheet(rows);
+}
+
 function parseNum(s, usd) {
   if (!s && s !== 0) return 0;
   let str = String(s).trim().replace(/[đ₫$\s]/g, "");
@@ -3616,6 +3689,13 @@ function ConfirmScreen({
   // ── State và refs phải khai báo trước useEffect sử dụng chúng ──────────────
   const [rows,setRows]=useState(results.map(r=>({...r})));
 
+  // ── Tờ Khai Hải quan NK: dùng chung cho cả công ty, để gợi ý/gắn vào GD thanh toán ──────────
+  const [tokhaiList, setTokhaiList] = useState(() => getCoToKhai(co.id));
+  const [tokhaiModalOpen, setTokhaiModalOpen] = useState(false);
+  const [tokhaiPickForRow, setTokhaiPickForRow] = useState(null); // rowId khi mở bảng ở chế độ "chọn"
+  React.useEffect(() => { setTokhaiList(getCoToKhai(co.id)); }, [co.id]);
+  const saveTokhaiList = list => { setTokhaiList(list); saveCoToKhai(co.id, list); };
+
   const undoStack=React.useRef([]),redoStack=React.useRef([]);
   const currentTabIdRef = React.useRef(activeTabAccId);
   const currentRowsRef  = React.useRef(rows);
@@ -4089,7 +4169,9 @@ function ConfirmScreen({
   // Xác nhận rồi mà hạch toán Nợ/Có là 131 (phải thu) hoặc 331 (phải trả) — luôn cần MST đối tác đi
   // kèm để lên chứng từ/xuất UNT-UNC đúng đối tượng. Nếu thiếu MST thì đây gần như chắc chắn là do
   // nhập thiếu, cần cảnh báo để rà lại thay vì phát hiện lúc xuất UNT/UNC.
-  const isMissingMstRow = r => r.confirmed === "yes" && (r.confirmedHach === "131" || r.confirmedHach === "331") && !r.confirmedMST;
+  // Bỏ qua GD đã gắn Tờ khai NK: nhà cung cấp nước ngoài không có MST Việt Nam nên thiếu MST ở đây
+  // là bình thường, không phải thiếu sót cần cảnh báo.
+  const isMissingMstRow = r => r.confirmed === "yes" && (r.confirmedHach === "131" || r.confirmedHach === "331") && !r.confirmedMST && !r.confirmedToKhaiId;
   const missingMstCount = rows.filter(isMissingMstRow).length;
 
   // Phát hiện hạch toán ngược chiều dòng tiền — dấu hiệu chọn nhầm hạch toán:
@@ -4533,6 +4615,64 @@ function ConfirmScreen({
     const isSkip = txRow.tx.debit > 0;
     internalTransferRow(rowId, sug.accId, sug.accLabel, sug.accCurrency, hach, isSkip, sug.row.id);
     showToast("✓ Đã tự xác nhận chuyển khoản nội bộ với " + sug.accLabel);
+  };
+
+  // ── Gợi ý gắn Tờ khai Hải quan NK vào GD thanh toán (tiền ra) ────────────────────────────────
+  // So khớp theo SỐ HOÁ ĐƠN / SỐ TỜ KHAI xuất hiện trong nội dung giao dịch (đáng tin cậy nhất vì
+  // sao kê ngân hàng thường ghi rõ "FOR PROFORMA INVOICE NO...") — nếu không tìm được, thử so khớp
+  // gần đúng số tiền VND (dung sai 5%, vì số thực trả có thể lệch chút do phí NH/tỷ giá làm tròn).
+  const tkCore = s => String(s || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  const findTokhaiSuggestions = row => {
+    if (!(row.tx.debit > 0)) return [];
+    const descU = tkCore(row.tx.desc);
+    const amt = row.tx.debit || 0;
+    return tokhaiList.filter(tk => {
+      if (tk.linkedRowId && tk.linkedRowId !== row.id) return false;
+      const invCore = tkCore(tk.soHoaDon);
+      if (invCore.length >= 4 && descU.includes(invCore)) return true;
+      const tkSoCore = String(tk.toKhaiSo || "").replace(/\D/g, "");
+      if (tkSoCore.length >= 6 && descU.includes(tkSoCore)) return true;
+      if (tk.trigiaTinhThueVND > 0 && amt > 0 && Math.abs(tk.trigiaTinhThueVND - amt) / tk.trigiaTinhThueVND <= 0.05) return true;
+      return false;
+    });
+  };
+  const tokhaiSuggestions = React.useMemo(() => {
+    const map = {};
+    rows.forEach(r => {
+      if (r.confirmed || !(r.tx.debit > 0)) return;
+      const sug = findTokhaiSuggestions(r);
+      if (sug.length) map[r.id] = sug;
+    });
+    return map;
+  }, [rows, tokhaiList]);
+  const attachTokhai = (rowId, tokhaiId) => {
+    const tk = tokhaiList.find(t => t.id === tokhaiId);
+    const row = rows.find(r => r.id === rowId);
+    if (!tk || !row) return;
+    setRowsH(prev => prev.map(r => r.id !== rowId ? r : {
+      ...r, confirmed: "yes", confirmedName: tk.nhaCungCap || r.confirmedName,
+      confirmedHach: r.confirmedHach || "331", manualConfirm: true, confirmedToKhaiId: tk.id
+    }));
+    saveTokhaiList(tokhaiList.map(t => t.id !== tk.id ? t : {
+      ...t, linkedRowId: rowId, bankDate: row.tx.date, bankVND: Math.max(row.tx.debit || 0, row.tx.credit || 0)
+    }));
+    showToast("✓ Đã gắn tờ khai " + tk.toKhaiSo + " vào giao dịch");
+    setTokhaiPickForRow(null);
+    setTokhaiModalOpen(false);
+  };
+  const openTokhaiPicker = rowId => { setTokhaiPickForRow(rowId); setTokhaiModalOpen(true); };
+  const handleImportTokhai = async file => {
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const parsed = parseToKhaiWorkbook(wb);
+      if (!parsed) { showToast("Không đọc được dữ liệu tờ khai từ file này", "warn"); return; }
+      saveTokhaiList([...tokhaiList, parsed]);
+      showToast("✓ Đã nhập tờ khai " + parsed.toKhaiSo);
+    } catch (e) {
+      showToast("Lỗi đọc file tờ khai: " + (e.message || e), "warn");
+    }
   };
 
   // Fix amount directly from raw sao ke text — clears rawAmt so mismatch won't re-trigger
@@ -5054,6 +5194,10 @@ function ConfirmScreen({
     style:{borderColor: addMode ? "var(--green)" : undefined, color: addMode ? "var(--green)" : undefined}
   }, "➕ Thêm sao kê"),/*#__PURE__*/React.createElement("button",{
     className:"btn btn-outline",
+    title:"Quản lý Tờ khai Hải quan NK — nhập từ file tờ khai, dùng để gắn vào GD thanh toán",
+    onClick:()=>{setTokhaiPickForRow(null);setTokhaiModalOpen(true);}
+  }, "📋 Tờ Khai NK" + (tokhaiList.length ? " (" + tokhaiList.length + ")" : "")),/*#__PURE__*/React.createElement("button",{
+    className:"btn btn-outline",
     onClick:()=>exportExcel(rows,co&&co.name||"export",[...coDict,...globalDict])
   }, "\uD83D\uDCE5 Xu\u1EA5t Excel"),/*#__PURE__*/React.createElement("button",{
     className:"btn btn-outline",
@@ -5512,8 +5656,115 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     onToggleSelect: toggleBulkSelect,
     onFillBulk: fillBulkForm,
     onSetTyGia: setRowTyGia,
+    tokhaiSuggestions: tokhaiSuggestions[r.id],
+    onAttachTokhai: attachTokhai,
+    onOpenTokhaiPicker: openTokhaiPicker,
     searchTerm: search
-  }))));
+  }))), tokhaiModalOpen && /*#__PURE__*/React.createElement(ToKhaiModal, {
+    list: tokhaiList,
+    onClose: () => { setTokhaiModalOpen(false); setTokhaiPickForRow(null); },
+    onSave: saveTokhaiList,
+    onImportFile: handleImportTokhai,
+    pickForRowId: tokhaiPickForRow,
+    onPick: tkId => attachTokhai(tokhaiPickForRow, tkId),
+    showToast
+  }));
+}
+
+// ── Bảng quản lý Tờ khai Hải quan NK: xem/sửa tay/nhập từ file tờ khai/xoá, và (khi mở ở chế độ
+// "chọn cho 1 giao dịch") cho chọn 1 tờ khai để gắn thẳng vào GD thanh toán đang xem trên sao kê ──
+function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick, showToast }) {
+  const [search, setSearch] = useState("");
+  const [importing, setImporting] = useState(false);
+  const filtered = list.filter(tk => {
+    const s = search.trim().toLowerCase();
+    if (!s) return true;
+    return (tk.toKhaiSo||"").toLowerCase().includes(s) || (tk.nhaCungCap||"").toLowerCase().includes(s) || (tk.soHoaDon||"").toLowerCase().includes(s);
+  });
+  const updateField = (id, field, raw) => {
+    const numFields = { triGiaHoaDon: 1, tyGiaTinhThue: 1, trigiaTinhThueVND: 1 };
+    const value = numFields[field] ? parseNum(raw, field === "triGiaHoaDon") : raw;
+    onSave(list.map(tk => tk.id === id ? { ...tk, [field]: value } : tk));
+  };
+  const removeRow = id => {
+    if (!window.confirm("Xoá tờ khai này khỏi danh sách?")) return;
+    onSave(list.filter(tk => tk.id !== id));
+  };
+  const addBlank = () => {
+    onSave([...list, { id: uid(), toKhaiSo: "", ngayToKhai: "", nhaCungCap: "", soHoaDon: "", ngayHoaDon: "", triGiaHoaDon: 0, currency: "USD", tyGiaTinhThue: 0, trigiaTinhThueVND: 0, ghiChu: "", created: new Date().toLocaleDateString("vi-VN") }]);
+  };
+  const handleFile = async e => {
+    const file = e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    setImporting(true);
+    try { await onImportFile(file); } finally { setImporting(false); }
+  };
+  const inputStyle = { width: "100%", border: "1px solid transparent", background: "transparent", font: "inherit", padding: "3px 4px", borderRadius: 4, boxSizing: "border-box" };
+  const th = (label, w) => React.createElement("th", { style: { padding: "6px 8px", textAlign: "left", fontSize: 11, color: "var(--text2)", borderBottom: "2px solid var(--border)", width: w, whiteSpace: "nowrap" } }, label);
+  const td = (...children) => React.createElement("td", { style: { padding: "2px 4px", borderBottom: "1px solid #eee", fontSize: 12, verticalAlign: "top" } }, ...children);
+
+  return React.createElement("div", {
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 },
+    onClick: onClose
+  }, React.createElement("div", {
+    style: { background: "#fff", borderRadius: 12, width: "96vw", maxWidth: 1500, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,.3)" },
+    onClick: e => e.stopPropagation()
+  },
+    React.createElement("div", { style: { padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" } },
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 15 } }, "📋 Tờ Khai Hải quan NK"),
+      pickForRowId && React.createElement("div", { style: { background: "#eef2ff", color: "#3730a3", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600 } }, "Đang chọn tờ khai để gắn vào giao dịch thanh toán — bấm \"✓ Chọn\" ở dòng phù hợp"),
+      React.createElement("input", {
+        value: search, onChange: e => setSearch(e.target.value),
+        placeholder: "Tìm số tờ khai / nhà cung cấp / số hoá đơn...",
+        style: { flex: 1, minWidth: 200, height: 32, fontSize: 13, borderRadius: 6, border: "1px solid var(--border)", padding: "0 10px" }
+      }),
+      React.createElement("label", { className: "btn btn-outline", style: { height: 32, display: "inline-flex", alignItems: "center", cursor: "pointer", fontSize: 12 } },
+        importing ? "Đang đọc..." : "📥 Nhập từ file Tờ khai (Excel)",
+        React.createElement("input", { type: "file", accept: ".xlsx,.xls", style: { display: "none" }, onChange: handleFile, disabled: importing })
+      ),
+      React.createElement("button", { className: "btn btn-outline", style: { height: 32, fontSize: 12 }, onClick: addBlank }, "+ Thêm tay"),
+      React.createElement("button", { onClick: onClose, style: { height: 32, padding: "0 12px", borderRadius: 6, border: "1px solid var(--border)", background: "#fff", cursor: "pointer", fontSize: 13 } }, "Đóng")
+    ),
+    React.createElement("div", { style: { overflow: "auto", flex: 1 } },
+      list.length === 0
+        ? React.createElement("div", { style: { padding: "3rem", textAlign: "center", color: "var(--text2)" } }, "Chưa có tờ khai nào — bấm \"📥 Nhập từ file Tờ khai (Excel)\" để nhập, hoặc \"+ Thêm tay\".")
+        : React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+            React.createElement("thead", null, React.createElement("tr", null,
+              th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 90), th("Số hoá đơn", 130), th("Ngày HĐ", 90),
+              th("Trị giá HĐ", 100), th("NT", 50), th("Tỷ giá thuế", 90), th("Trị giá thuế (VND)", 120),
+              th("GD ngân hàng đã gắn", 160), th("Chênh lệch", 100), th("Ghi chú", 160), th("", 80)
+            )),
+            React.createElement("tbody", null, filtered.map(tk => {
+              const chenhLech = tk.linkedRowId && tk.bankVND ? tk.bankVND - (tk.trigiaTinhThueVND||0) : null;
+              return React.createElement("tr", { key: tk.id },
+                td(React.createElement("input", { style: inputStyle, value: tk.nhaCungCap||"", onChange: e => updateField(tk.id, "nhaCungCap", e.target.value) })),
+                td(React.createElement("input", { style: inputStyle, value: tk.toKhaiSo||"", onChange: e => updateField(tk.id, "toKhaiSo", e.target.value) })),
+                td(React.createElement("input", { style: inputStyle, value: tk.ngayToKhai||"", onChange: e => updateField(tk.id, "ngayToKhai", e.target.value), placeholder: "dd/mm/yyyy" })),
+                td(React.createElement("input", { style: inputStyle, value: tk.soHoaDon||"", onChange: e => updateField(tk.id, "soHoaDon", e.target.value) })),
+                td(React.createElement("input", { style: inputStyle, value: tk.ngayHoaDon||"", onChange: e => updateField(tk.id, "ngayHoaDon", e.target.value), placeholder: "dd/mm/yyyy" })),
+                td(React.createElement("input", { style: inputStyle, value: tk.triGiaHoaDon||"", onChange: e => updateField(tk.id, "triGiaHoaDon", e.target.value) })),
+                td(React.createElement("input", { style: { ...inputStyle, width: 50 }, value: tk.currency||"USD", onChange: e => updateField(tk.id, "currency", e.target.value.toUpperCase()) })),
+                td(React.createElement("input", { style: inputStyle, value: tk.tyGiaTinhThue||"", onChange: e => updateField(tk.id, "tyGiaTinhThue", e.target.value) })),
+                td(React.createElement("input", { style: inputStyle, value: tk.trigiaTinhThueVND||"", onChange: e => updateField(tk.id, "trigiaTinhThueVND", e.target.value) })),
+                td(tk.linkedRowId ? (tk.bankDate + " — " + fmt(tk.bankVND, "VND")) : React.createElement("span", { style: { color: "var(--text3)" } }, "Chưa gắn")),
+                td(chenhLech !== null ? React.createElement("span", { style: { color: Math.abs(chenhLech) < 1000 ? "var(--green-d)" : "#dc2626", fontWeight: 600 } }, fmt(chenhLech, "VND")) : ""),
+                td(React.createElement("input", { style: inputStyle, value: tk.ghiChu||"", onChange: e => updateField(tk.id, "ghiChu", e.target.value) })),
+                td(
+                  pickForRowId && React.createElement("button", {
+                    onClick: () => onPick(tk.id),
+                    style: { background: "var(--green)", color: "#fff", border: "none", borderRadius: 5, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600, marginRight: 4 }
+                  }, "✓ Chọn"),
+                  React.createElement("button", {
+                    onClick: () => removeRow(tk.id),
+                    style: { background: "#fff", color: "#dc2626", border: "1px solid #f5c0c0", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer" }
+                  }, "Xoá")
+                )
+              );
+            }))
+          )
+    )
+  ));
 }
 function PickerInvRow({
   inv,
@@ -5689,6 +5940,9 @@ function ConfirmRow({
   onQuickInternal,
   onFillBulk,
   onSetTyGia,
+  tokhaiSuggestions,
+  onAttachTokhai,
+  onOpenTokhaiPicker,
   searchTerm
 }) {
   // Close edit mode on global Esc event
@@ -6205,7 +6459,32 @@ function ConfirmRow({
         fontWeight: 600
       }
     }, "✓ D\xF9ng gợi \xFD n\xE0y (tự hạch to\xE1n)")
-  ), !internalSuggestion && !r.t1_dict && (!r.invMatches || !r.invMatches.length) && (!r.nameMatches || !r.nameMatches.length) && /*#__PURE__*/React.createElement("div", {
+  ), tokhaiSuggestions && tokhaiSuggestions.length > 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      padding: "8px 10px",
+      marginBottom: 6,
+      background: "#eef2ff",
+      border: "1px solid #c7d2fe",
+      borderRadius: 6
+    }
+  },
+    /*#__PURE__*/React.createElement("div", {
+      style: { fontWeight: 600, color: "#3730a3", marginBottom: 4 }
+    }, "📋 Tờ khai HQ khớp (" + tokhaiSuggestions.length + "):"),
+    tokhaiSuggestions.slice(0, 3).map(tk => /*#__PURE__*/React.createElement("div", {
+      key: tk.id,
+      style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }
+    },
+      /*#__PURE__*/React.createElement("span", { style: { color: "#3730a3" } },
+        "Tờ khai " + (tk.toKhaiSo||"") + " — " + (tk.nhaCungCap||"") + " — HĐ " + (tk.soHoaDon||"") + " — " + fmt(tk.trigiaTinhThueVND||0, "VND")
+      ),
+      /*#__PURE__*/React.createElement("button", {
+        onClick: e => { e.stopPropagation(); onAttachTokhai(r.id, tk.id); },
+        style: { fontSize: 11, padding: "3px 10px", borderRadius: 5, border: "none", background: "#7c3aed", color: "#fff", cursor: "pointer", fontWeight: 600 }
+      }, "✓ Gắn tờ khai")
+    ))
+  ), !internalSuggestion && !r.t1_dict && (!r.invMatches || !r.invMatches.length) && (!r.nameMatches || !r.nameMatches.length) && !(tokhaiSuggestions && tokhaiSuggestions.length) && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "var(--text3)",
@@ -6333,7 +6612,19 @@ function ConfirmRow({
       fontSize: 12,
       cursor: "pointer"
     }
-  }, "\uD83D\uDCC4 Ch\u1ECDn H\u0110"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCC4 Ch\u1ECDn H\u0110"), isDebit && onOpenTokhaiPicker && /*#__PURE__*/React.createElement("button", {
+    onClick: () => onOpenTokhaiPicker(r.id),
+    title: "Ch\u1ECDn t\u1EEB danh s\u00E1ch T\u1EDD khai H\u1EA3i quan NK \u0111\u1EC3 g\u1EAFn v\u00E0o giao d\u1ECBch thanh to\u00E1n n\u00E0y",
+    style: {
+      height: 30,
+      borderRadius: 7,
+      border: "1px solid #7c3aed",
+      background: "transparent",
+      color: "#7c3aed",
+      fontSize: 12,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDCCB Ch\u1ECDn t\u1EDD khai"), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setEditMST(r.confirmedMST || "");
       setEditName(r.confirmedName || "");
