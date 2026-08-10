@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.76";
+const APP_VERSION = "2026.07.05.77";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -5716,9 +5716,23 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
   const handleFile = async e => {
     const files = e.target.files;
     e.target.value = "";
-    if (!files || !files.length) return;
+    if (!files || !files.length) {
+      // Trường hợp bấm nút rồi bấm Huỷ/đóng hộp thoại chọn file mà không chọn gì — báo rõ để
+      // không bị hiểu nhầm là phần mềm "im lặng không phản ứng" khi thực ra chưa chọn file nào.
+      alert("Chưa chọn file nào — hãy bấm lại nút này và chọn ít nhất 1 file tờ khai (.xlsx).");
+      return;
+    }
     setImporting(true);
-    try { await onImportFile(files); } finally { setImporting(false); }
+    // Bọc try/catch NGOÀI CÙNG để chắc chắn luôn có phản hồi, kể cả khi có lỗi bất ngờ không lường
+    // trước — tránh tình trạng lỗi bị nuốt âm thầm (unhandled promise rejection) khiến người dùng
+    // bấm nút mà hoàn toàn không thấy gì xảy ra.
+    try {
+      await onImportFile(files);
+    } catch (e) {
+      alert("❌ Lỗi khi nhập tờ khai: " + (e && e.message ? e.message : String(e)) + "\n\nHãy chụp lại thông báo này gửi cho tôi để kiểm tra.");
+    } finally {
+      setImporting(false);
+    }
   };
   const inputStyle = { width: "100%", border: "1px solid transparent", background: "transparent", font: "inherit", fontSize: 13, padding: "5px 6px", borderRadius: 4, boxSizing: "border-box" };
   const th = (label, w) => React.createElement("th", { style: { padding: "8px 10px", textAlign: "left", fontSize: 12, color: "var(--text2)", borderBottom: "2px solid var(--border)", width: w, whiteSpace: "nowrap" } }, label);
