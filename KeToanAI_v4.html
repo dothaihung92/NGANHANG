@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.79";
+const APP_VERSION = "2026.07.05.80";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -5720,6 +5720,23 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
     const value = numFields[field] ? parseNum(raw, field === "triGiaHoaDon" || field === "bankAmt") : raw;
     onSave(list.map(tk => tk.id === id ? { ...tk, [field]: value } : tk));
   };
+  // Các ô số tiền hiện dấu phân cách hàng nghìn cho dễ đọc (VD "7,477.5"), nhưng khi đang gõ (ô
+  // đang được focus) thì hiện đúng số thô đang gõ — tránh dấu phẩy tự chèn vào giữa lúc gõ làm nhảy
+  // con trỏ, khó nhập.
+  const [focusedCell, setFocusedCell] = useState(null);
+  const numInput = (tk, field, w) => {
+    const key = tk.id + "_" + field;
+    const isFocused = focusedCell === key;
+    const raw = tk[field];
+    const display = isFocused ? (raw ? String(raw) : "") : (raw ? Number(raw).toLocaleString("en-US", { maximumFractionDigits: 4 }) : "");
+    return React.createElement("input", {
+      style: w ? { ...inputStyle, width: w } : inputStyle,
+      value: display,
+      onFocus: () => setFocusedCell(key),
+      onBlur: () => setFocusedCell(null),
+      onChange: e => updateField(tk.id, field, e.target.value)
+    });
+  };
   const removeRow = id => {
     if (!window.confirm("Xoá tờ khai này khỏi danh sách?")) return;
     onSave(list.filter(tk => tk.id !== id));
@@ -5786,7 +5803,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
     ),
     React.createElement("div", { style: { overflow: "auto", flex: 1 } },
       list.length === 0
-        ? React.createElement("div", { style: { padding: "3rem", textAlign: "center", color: "var(--text2)" } }, "Chưa có tờ khai nào — bấm \"📥 Nhập từ file Tờ khai (Excel)\" để nhập, hoặc \"+ Thêm tay\".")
+        ? React.createElement("div", { style: { padding: "3rem", textAlign: "center", color: "var(--text2)" } }, "Chưa có tờ khai nào — bấm \"📥 Nhập nhiều file Tờ khai (Excel)\" để nhập, hoặc \"+ Thêm tay\".")
         : React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
             React.createElement("thead", null,
               React.createElement("tr", null,
@@ -5797,9 +5814,9 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
               ),
               React.createElement("tr", null,
                 th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 90), th("Số hoá đơn", 130), th("Ngày HĐ", 90),
-                th("Trị giá HĐ", 100), th("NT", 50), th("Tỷ giá thuế", 90), th("Trị giá thuế (VND)", 130),
-                th("Ngày TT", 90), th("Trị giá TT (NT)", 110), th("Tỷ giá TT", 90), th("Đồng Việt Nam TT", 130),
-                th("Chênh lệch", 110), th("Ghi chú", 160), th("", 60)
+                th("Trị giá HĐ", 110), th("NT", 50), th("Tỷ giá thuế", 100), th("Trị giá thuế (VND)", 130),
+                th("Ngày TT", 90), th("Trị giá TT (NT)", 120), th("Tỷ giá TT", 100), th("Đồng Việt Nam TT", 130),
+                th("Chênh lệch", 110), th("", 60)
               )
             ),
             React.createElement("tbody", null, filtered.map(tk => {
@@ -5811,18 +5828,17 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
                 td(React.createElement("input", { style: inputStyle, value: tk.ngayToKhai||"", onChange: e => updateField(tk.id, "ngayToKhai", e.target.value), placeholder: "dd/mm/yyyy" })),
                 td(React.createElement("input", { style: inputStyle, value: tk.soHoaDon||"", onChange: e => updateField(tk.id, "soHoaDon", e.target.value) })),
                 td(React.createElement("input", { style: inputStyle, value: tk.ngayHoaDon||"", onChange: e => updateField(tk.id, "ngayHoaDon", e.target.value), placeholder: "dd/mm/yyyy" })),
-                td(React.createElement("input", { style: inputStyle, value: tk.triGiaHoaDon||"", onChange: e => updateField(tk.id, "triGiaHoaDon", e.target.value) })),
+                td(numInput(tk, "triGiaHoaDon")),
                 td(React.createElement("input", { style: { ...inputStyle, width: 50 }, value: tk.currency||"USD", onChange: e => updateField(tk.id, "currency", e.target.value.toUpperCase()) })),
-                td(React.createElement("input", { style: inputStyle, value: tk.tyGiaTinhThue||"", onChange: e => updateField(tk.id, "tyGiaTinhThue", e.target.value) })),
+                td(numInput(tk, "tyGiaTinhThue")),
                 // Trị giá thuế = Trị giá HĐ × Tỷ giá tính thuế — LUÔN tự tính, hiện định dạng số tiền
                 // (không cho sửa tay trực tiếp; muốn đổi thì sửa Trị giá HĐ hoặc Tỷ giá tính thuế).
                 td(React.createElement("div", { style: { padding: "3px 4px", fontWeight: 600 } }, taxVND ? fmt(taxVND, "VND") : "")),
                 td(React.createElement("input", { style: inputStyle, value: tk.bankDate||"", onChange: e => updateField(tk.id, "bankDate", e.target.value), placeholder: "dd/mm/yyyy" })),
-                td(React.createElement("input", { style: inputStyle, value: tk.bankAmt||"", onChange: e => updateField(tk.id, "bankAmt", e.target.value) })),
-                td(React.createElement("input", { style: inputStyle, value: tk.bankRate||"", onChange: e => updateField(tk.id, "bankRate", e.target.value) })),
-                td(React.createElement("input", { style: inputStyle, value: tk.bankVND||"", onChange: e => updateField(tk.id, "bankVND", e.target.value), placeholder: tk.linkedRowId ? "" : "Chưa gắn GD" })),
+                td(numInput(tk, "bankAmt")),
+                td(numInput(tk, "bankRate")),
+                td(numInput(tk, "bankVND")),
                 td(chenhLech !== null ? React.createElement("span", { style: { color: Math.abs(chenhLech) < 1000 ? "var(--green-d)" : "#dc2626", fontWeight: 600 } }, fmt(chenhLech, "VND")) : ""),
-                td(React.createElement("input", { style: inputStyle, value: tk.ghiChu||"", onChange: e => updateField(tk.id, "ghiChu", e.target.value) })),
                 td(
                   pickForRowId && React.createElement("button", {
                     onClick: () => onPick(tk.id),
@@ -6550,7 +6566,7 @@ function ConfirmRow({
       style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }
     },
       /*#__PURE__*/React.createElement("span", { style: { color: "#3730a3" } },
-        "Tờ khai " + (tk.toKhaiSo||"") + " — " + (tk.nhaCungCap||"") + " — HĐ " + (tk.soHoaDon||"") + " — " + fmt(tkTaxVND(tk), "VND")
+        "Tờ khai " + (tk.toKhaiSo||"") + " — " + (tk.nhaCungCap||"") + " — HĐ " + (tk.soHoaDon||"") + " — " + fmt(tk.triGiaHoaDon||0, tk.currency||"USD") + " — " + fmt(tkTaxVND(tk), "VND")
       ),
       /*#__PURE__*/React.createElement("button", {
         onClick: e => { e.stopPropagation(); onAttachTokhai(r.id, tk.id); },
