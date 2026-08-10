@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.87";
+const APP_VERSION = "2026.07.05.88";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4673,6 +4673,28 @@ function ConfirmScreen({
   // sao kê ngân hàng thường ghi rõ "FOR PROFORMA INVOICE NO...") — nếu không tìm được, thử so khớp
   // gần đúng số tiền VND (dung sai 5%, vì số thực trả có thể lệch chút do phí NH/tỷ giá làm tròn).
   const tkCore = s => String(s || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  // Nội dung sao kê thường ghi kèm số tiền ngoại tệ đã thanh toán (VD "USD 7,447.50" hay
+  // "7477.50USD") — dò lấy ra để so khớp gợi ý và điền sẵn cột "Trị giá TT (NT)". Khai báo hàm này
+  // TRƯỚC "tokhaiSuggestions" (useMemo) — vì factory của useMemo chạy NGAY LẬP TỨC lúc render (khác
+  // với JSX ở cuối hàm chỉ chạy sau khi mọi const đã gán xong), nên nếu đặt hàm này ở dưới sẽ bị lỗi
+  // "Cannot access before initialization" (biến còn trong vùng chết tạm thời - TDZ) ngay khi mở màn
+  // hình xác nhận.
+  const extractForeignAmt = (desc, currency) => {
+    // "currency" (ô "NT") là ô người dùng tự gõ tay trong bảng Tờ Khai NK — nếu gõ ký tự đặc biệt
+    // (VD dấu ngoặc, dấu +) sẽ làm hỏng biểu thức chính quy (RegExp) và có thể làm sập trang — phải
+    // escape ký tự đặc biệt VÀ bọc try/catch để không bao giờ crash cả ứng dụng chỉ vì 1 ô nhập
+    // liệu currency bị gõ sai.
+    try {
+      const cur = (currency || "USD").toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (!cur) return 0;
+      const re = new RegExp("(?:" + cur + "\\s*([\\d.,]+)|([\\d.,]+)\\s*\\*?\\s*" + cur + ")", "i");
+      const m = String(desc || "").match(re);
+      if (!m) return 0;
+      return parseNum(m[1] || m[2] || "", true);
+    } catch (e) {
+      return 0;
+    }
+  };
   // Tờ khai đã "chốt" (đã hạch toán lãi/lỗ chênh lệch tỷ giá cho lần thanh toán cuối) coi như đã
   // trả xong hẳn — không cần gợi ý nữa dù có giao dịch nào khác trùng số tiền/số hoá đơn.
   const isTokhaiClosed = tk => tkPayments(tk).some(p => {
@@ -4717,26 +4739,6 @@ function ConfirmScreen({
     });
     return map;
   }, [rows, tokhaiList]);
-  // Nội dung sao kê thường ghi kèm số tiền ngoại tệ đã thanh toán (VD "USD 7,447.50" hay
-  // "7477.50USD") — dò lấy ra để điền sẵn cột "Trị giá TT (NT)" của bảng Tờ Khai NK, người dùng vẫn
-  // sửa tay lại được nếu dò sai/không tìm thấy.
-  const extractForeignAmt = (desc, currency) => {
-    // "currency" (ô "NT") là ô người dùng tự gõ tay trong bảng Tờ Khai NK — nếu gõ ký tự đặc biệt
-    // (VD dấu ngoặc, dấu +) sẽ làm hỏng biểu thức chính quy (RegExp) và LÀM SẬP TOÀN BỘ TRANG (vì
-    // hàm này chạy lại mỗi lần render qua tokhaiSuggestions, không phải chỉ khi bấm nút) — phải
-    // escape ký tự đặc biệt VÀ bọc try/catch để không bao giờ làm crash cả ứng dụng chỉ vì 1 ô nhập
-    // liệu currency bị gõ sai.
-    try {
-      const cur = (currency || "USD").toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (!cur) return 0;
-      const re = new RegExp("(?:" + cur + "\\s*([\\d.,]+)|([\\d.,]+)\\s*\\*?\\s*" + cur + ")", "i");
-      const m = String(desc || "").match(re);
-      if (!m) return 0;
-      return parseNum(m[1] || m[2] || "", true);
-    } catch (e) {
-      return 0;
-    }
-  };
   // 1 tờ khai có thể gắn với NHIỀU giao dịch thanh toán khác ngày (trả cọc trước, trả nốt sau...)
   // — mỗi lần gắn sẽ THÊM một lần thanh toán mới vào danh sách (payments), không còn ghi đè/chỉ cho
   // gắn đúng 1 giao dịch duy nhất như trước.
