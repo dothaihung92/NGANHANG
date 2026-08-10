@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.75";
+const APP_VERSION = "2026.07.05.76";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4667,27 +4667,26 @@ function ConfirmScreen({
     const fileArr = Array.from(files || []);
     if (!fileArr.length) return;
     let list = tokhaiList;
-    let added = 0, skipped = 0, failed = 0;
+    // Ghi chi tiết TỪNG FILE (không chỉ đếm số lượng) để hiện rõ trong alert cuối cùng — tránh tình
+    // trạng người dùng bấm nhập nhưng không rõ đã xảy ra chuyện gì (VD tưởng "không nhập được" trong
+    // khi thực ra là bị bỏ qua vì tờ khai đó đã có sẵn từ trước).
+    const detail = [];
     for (const file of fileArr) {
       try {
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: "array" });
         const parsed = parseToKhaiWorkbook(wb);
-        if (!parsed) { failed++; continue; }
-        const isDup = list.some(t => t.toKhaiSo && parsed.toKhaiSo && t.toKhaiSo === parsed.toKhaiSo);
-        if (isDup) { skipped++; continue; }
+        if (!parsed) { detail.push(`✗ ${file.name}: không tìm thấy dữ liệu tờ khai hợp lệ trong file (thiếu nhãn "Số tờ khai")`); continue; }
+        const existing = list.find(t => t.toKhaiSo && parsed.toKhaiSo && t.toKhaiSo === parsed.toKhaiSo);
+        if (existing) { detail.push(`⏭ ${file.name}: tờ khai số ${parsed.toKhaiSo} đã có sẵn trong danh sách (bỏ qua, không nhập trùng)`); continue; }
         list = [...list, parsed];
-        added++;
+        detail.push(`✓ ${file.name}: đã nhập tờ khai số ${parsed.toKhaiSo} — ${parsed.nhaCungCap || "(chưa rõ nhà cung cấp)"}`);
       } catch (e) {
-        failed++;
+        detail.push(`✗ ${file.name}: lỗi đọc file — ${e.message || e}`);
       }
     }
-    if (added) saveTokhaiList(list);
-    const parts = [];
-    if (added) parts.push(`✓ Đã nhập ${added} tờ khai mới`);
-    if (skipped) parts.push(`bỏ qua ${skipped} tờ khai trùng số`);
-    if (failed) parts.push(`lỗi ${failed} file không đọc được`);
-    showToast(parts.join(", ") || "Không nhập được tờ khai nào", added ? "ok" : "warn");
+    if (list !== tokhaiList) saveTokhaiList(list);
+    alert("Kết quả nhập tờ khai:\n\n" + detail.join("\n"));
   };
 
   // Fix amount directly from raw sao ke text — clears rawAmt so mismatch won't re-trigger
