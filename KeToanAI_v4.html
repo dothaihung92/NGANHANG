@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.78";
+const APP_VERSION = "2026.07.05.79";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -563,7 +563,6 @@ function parseToKhaiSheet(rows) {
   const descPart = String(tongTriGiaVals[0] || "").toUpperCase();
   const currency = TK_CURRENCIES.find(c => descPart.includes(c)) || "USD";
   const triGiaHoaDon = parseNum(tongTriGiaVals[1], currency !== "VND");
-  const trigiaTinhThueVND = parseNum(tkLabelValue(rows, "Tổng trị giá tính thuế", 0), false);
   // "Tỷ giá tính thuế" nằm chung dòng với nhiều mã thuế khác — số tỷ giá luôn là giá trị CUỐI CÙNG
   // còn lại trên dòng đó (sau các mã tiền tệ/gạch ngang), lấy từ cuối cho ổn định hơn lấy theo nhãn.
   const tgttIdx = tkFindLabelRow(rows, "Tỷ giá tính thuế", 0);
@@ -581,8 +580,15 @@ function parseToKhaiSheet(rows) {
   return {
     id: uid(), toKhaiSo: String(toKhaiSo), ngayToKhai, nhaCungCap: String(nhaCungCap).trim(),
     soHoaDon: String(soHoaDon).trim(), ngayHoaDon: (ngayHoaDon.match(/\d{1,2}\/\d{1,2}\/\d{4}/) || [""])[0],
-    triGiaHoaDon, currency, tyGiaTinhThue, trigiaTinhThueVND, ghiChu, created: new Date().toLocaleDateString("vi-VN")
+    triGiaHoaDon, currency, tyGiaTinhThue, ghiChu, created: new Date().toLocaleDateString("vi-VN")
   };
+}
+// Trị giá tính thuế (VND) LUÔN tính = Trị giá HĐ × Tỷ giá tính thuế — đúng công thức bảng theo dõi
+// của kế toán, thay vì đọc trực tiếp ô "Tổng trị giá tính thuế" trên tờ khai (một số file không có
+// ô này hoặc format khác khiến đọc ra rỗng, và số đó còn gồm cả phí bảo hiểm/vận chuyển nên không
+// khớp với công thức đơn giản này).
+function tkTaxVND(tk) {
+  return Math.round((tk.triGiaHoaDon || 0) * (tk.tyGiaTinhThue || 0));
 }
 function parseToKhaiWorkbook(wb) {
   const sheetName = wb.SheetNames.find(n => n.toUpperCase() === "TKN") || wb.SheetNames[0];
@@ -4632,7 +4638,8 @@ function ConfirmScreen({
       if (invCore.length >= 4 && descU.includes(invCore)) return true;
       const tkSoCore = String(tk.toKhaiSo || "").replace(/\D/g, "");
       if (tkSoCore.length >= 6 && descU.includes(tkSoCore)) return true;
-      if (tk.trigiaTinhThueVND > 0 && amt > 0 && Math.abs(tk.trigiaTinhThueVND - amt) / tk.trigiaTinhThueVND <= 0.05) return true;
+      const taxVND = tkTaxVND(tk);
+      if (taxVND > 0 && amt > 0 && Math.abs(taxVND - amt) / taxVND <= 0.05) return true;
       return false;
     });
   };
@@ -4645,6 +4652,16 @@ function ConfirmScreen({
     });
     return map;
   }, [rows, tokhaiList]);
+  // Nội dung sao kê thường ghi kèm số tiền ngoại tệ đã thanh toán (VD "USD 7,447.50" hay
+  // "7477.50USD") — dò lấy ra để điền sẵn cột "Trị giá TT (NT)" của bảng Tờ Khai NK, người dùng vẫn
+  // sửa tay lại được nếu dò sai/không tìm thấy.
+  const extractForeignAmt = (desc, currency) => {
+    const cur = (currency || "USD").toUpperCase();
+    const re = new RegExp("(?:" + cur + "\\s*([\\d.,]+)|([\\d.,]+)\\s*\\*?\\s*" + cur + ")", "i");
+    const m = String(desc || "").match(re);
+    if (!m) return 0;
+    return parseNum(m[1] || m[2] || "", true);
+  };
   const attachTokhai = (rowId, tokhaiId) => {
     const tk = tokhaiList.find(t => t.id === tokhaiId);
     const row = rows.find(r => r.id === rowId);
@@ -4653,8 +4670,11 @@ function ConfirmScreen({
       ...r, confirmed: "yes", confirmedName: tk.nhaCungCap || r.confirmedName,
       confirmedHach: r.confirmedHach || "331", manualConfirm: true, confirmedToKhaiId: tk.id
     }));
+    const bankVND = Math.max(row.tx.debit || 0, row.tx.credit || 0);
+    const bankAmt = extractForeignAmt(row.tx.desc, tk.currency) || tk.triGiaHoaDon || 0;
+    const bankRate = bankAmt > 0 ? Math.round(bankVND / bankAmt) : 0;
     saveTokhaiList(tokhaiList.map(t => t.id !== tk.id ? t : {
-      ...t, linkedRowId: rowId, bankDate: row.tx.date, bankVND: Math.max(row.tx.debit || 0, row.tx.credit || 0)
+      ...t, linkedRowId: rowId, bankDate: row.tx.date, bankAmt, bankRate, bankVND
     }));
     showToast("✓ Đã gắn tờ khai " + tk.toKhaiSo + " vào giao dịch");
     setTokhaiPickForRow(null);
@@ -5696,8 +5716,8 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
     return (tk.toKhaiSo||"").toLowerCase().includes(s) || (tk.nhaCungCap||"").toLowerCase().includes(s) || (tk.soHoaDon||"").toLowerCase().includes(s);
   });
   const updateField = (id, field, raw) => {
-    const numFields = { triGiaHoaDon: 1, tyGiaTinhThue: 1, trigiaTinhThueVND: 1 };
-    const value = numFields[field] ? parseNum(raw, field === "triGiaHoaDon") : raw;
+    const numFields = { triGiaHoaDon: 1, tyGiaTinhThue: 1, bankAmt: 1, bankRate: 1, bankVND: 1 };
+    const value = numFields[field] ? parseNum(raw, field === "triGiaHoaDon" || field === "bankAmt") : raw;
     onSave(list.map(tk => tk.id === id ? { ...tk, [field]: value } : tk));
   };
   const removeRow = id => {
@@ -5705,7 +5725,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
     onSave(list.filter(tk => tk.id !== id));
   };
   const addBlank = () => {
-    onSave([...list, { id: uid(), toKhaiSo: "", ngayToKhai: "", nhaCungCap: "", soHoaDon: "", ngayHoaDon: "", triGiaHoaDon: 0, currency: "USD", tyGiaTinhThue: 0, trigiaTinhThueVND: 0, ghiChu: "", created: new Date().toLocaleDateString("vi-VN") }]);
+    onSave([...list, { id: uid(), toKhaiSo: "", ngayToKhai: "", nhaCungCap: "", soHoaDon: "", ngayHoaDon: "", triGiaHoaDon: 0, currency: "USD", tyGiaTinhThue: 0, ghiChu: "", created: new Date().toLocaleDateString("vi-VN") }]);
   };
   // Esc để đóng khung — giống các popup khác trong phần mềm.
   React.useEffect(() => {
@@ -5768,13 +5788,23 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
       list.length === 0
         ? React.createElement("div", { style: { padding: "3rem", textAlign: "center", color: "var(--text2)" } }, "Chưa có tờ khai nào — bấm \"📥 Nhập từ file Tờ khai (Excel)\" để nhập, hoặc \"+ Thêm tay\".")
         : React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
-            React.createElement("thead", null, React.createElement("tr", null,
-              th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 90), th("Số hoá đơn", 130), th("Ngày HĐ", 90),
-              th("Trị giá HĐ", 100), th("NT", 50), th("Tỷ giá thuế", 90), th("Trị giá thuế (VND)", 120),
-              th("GD ngân hàng đã gắn", 160), th("Chênh lệch", 100), th("Ghi chú", 160), th("", 80)
-            )),
+            React.createElement("thead", null,
+              React.createElement("tr", null,
+                React.createElement("th", { colSpan: 5, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TỜ KHAI HẢI QUAN NK"),
+                React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TRỊ GIÁ"),
+                React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#1d4ed8", background: "#eef2ff" } }, "CHỨNG TỪ NGÂN HÀNG"),
+                React.createElement("th", { colSpan: 2, style: { padding: "4px 8px" } }, "")
+              ),
+              React.createElement("tr", null,
+                th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 90), th("Số hoá đơn", 130), th("Ngày HĐ", 90),
+                th("Trị giá HĐ", 100), th("NT", 50), th("Tỷ giá thuế", 90), th("Trị giá thuế (VND)", 130),
+                th("Ngày TT", 90), th("Trị giá TT (NT)", 110), th("Tỷ giá TT", 90), th("Đồng Việt Nam TT", 130),
+                th("Chênh lệch", 110), th("Ghi chú", 160), th("", 60)
+              )
+            ),
             React.createElement("tbody", null, filtered.map(tk => {
-              const chenhLech = tk.linkedRowId && tk.bankVND ? tk.bankVND - (tk.trigiaTinhThueVND||0) : null;
+              const taxVND = tkTaxVND(tk);
+              const chenhLech = tk.linkedRowId && tk.bankVND ? tk.bankVND - taxVND : null;
               return React.createElement("tr", { key: tk.id },
                 td(React.createElement("input", { style: inputStyle, value: tk.nhaCungCap||"", onChange: e => updateField(tk.id, "nhaCungCap", e.target.value) })),
                 td(React.createElement("input", { style: inputStyle, value: tk.toKhaiSo||"", onChange: e => updateField(tk.id, "toKhaiSo", e.target.value) })),
@@ -5784,8 +5814,13 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
                 td(React.createElement("input", { style: inputStyle, value: tk.triGiaHoaDon||"", onChange: e => updateField(tk.id, "triGiaHoaDon", e.target.value) })),
                 td(React.createElement("input", { style: { ...inputStyle, width: 50 }, value: tk.currency||"USD", onChange: e => updateField(tk.id, "currency", e.target.value.toUpperCase()) })),
                 td(React.createElement("input", { style: inputStyle, value: tk.tyGiaTinhThue||"", onChange: e => updateField(tk.id, "tyGiaTinhThue", e.target.value) })),
-                td(React.createElement("input", { style: inputStyle, value: tk.trigiaTinhThueVND||"", onChange: e => updateField(tk.id, "trigiaTinhThueVND", e.target.value) })),
-                td(tk.linkedRowId ? (tk.bankDate + " — " + fmt(tk.bankVND, "VND")) : React.createElement("span", { style: { color: "var(--text3)" } }, "Chưa gắn")),
+                // Trị giá thuế = Trị giá HĐ × Tỷ giá tính thuế — LUÔN tự tính, hiện định dạng số tiền
+                // (không cho sửa tay trực tiếp; muốn đổi thì sửa Trị giá HĐ hoặc Tỷ giá tính thuế).
+                td(React.createElement("div", { style: { padding: "3px 4px", fontWeight: 600 } }, taxVND ? fmt(taxVND, "VND") : "")),
+                td(React.createElement("input", { style: inputStyle, value: tk.bankDate||"", onChange: e => updateField(tk.id, "bankDate", e.target.value), placeholder: "dd/mm/yyyy" })),
+                td(React.createElement("input", { style: inputStyle, value: tk.bankAmt||"", onChange: e => updateField(tk.id, "bankAmt", e.target.value) })),
+                td(React.createElement("input", { style: inputStyle, value: tk.bankRate||"", onChange: e => updateField(tk.id, "bankRate", e.target.value) })),
+                td(React.createElement("input", { style: inputStyle, value: tk.bankVND||"", onChange: e => updateField(tk.id, "bankVND", e.target.value), placeholder: tk.linkedRowId ? "" : "Chưa gắn GD" })),
                 td(chenhLech !== null ? React.createElement("span", { style: { color: Math.abs(chenhLech) < 1000 ? "var(--green-d)" : "#dc2626", fontWeight: 600 } }, fmt(chenhLech, "VND")) : ""),
                 td(React.createElement("input", { style: inputStyle, value: tk.ghiChu||"", onChange: e => updateField(tk.id, "ghiChu", e.target.value) })),
                 td(
@@ -6515,7 +6550,7 @@ function ConfirmRow({
       style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }
     },
       /*#__PURE__*/React.createElement("span", { style: { color: "#3730a3" } },
-        "Tờ khai " + (tk.toKhaiSo||"") + " — " + (tk.nhaCungCap||"") + " — HĐ " + (tk.soHoaDon||"") + " — " + fmt(tk.trigiaTinhThueVND||0, "VND")
+        "Tờ khai " + (tk.toKhaiSo||"") + " — " + (tk.nhaCungCap||"") + " — HĐ " + (tk.soHoaDon||"") + " — " + fmt(tkTaxVND(tk), "VND")
       ),
       /*#__PURE__*/React.createElement("button", {
         onClick: e => { e.stopPropagation(); onAttachTokhai(r.id, tk.id); },
