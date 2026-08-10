@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.82";
+const APP_VERSION = "2026.07.05.83";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -5917,13 +5917,14 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
                 React.createElement("th", { colSpan: 5, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TỜ KHAI HẢI QUAN NK"),
                 React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TRỊ GIÁ"),
                 React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#1d4ed8", background: "#eef2ff" } }, "CHỨNG TỪ NGÂN HÀNG"),
-                React.createElement("th", { colSpan: 3, style: { padding: "4px 8px" } }, "")
+                React.createElement("th", { colSpan: 2, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "CHÊNH LỆCH"),
+                React.createElement("th", { colSpan: 2, style: { padding: "4px 8px" } }, "")
               ),
               React.createElement("tr", null,
                 th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 90), th("Số hoá đơn", 130), th("Ngày HĐ", 90),
                 th("Trị giá HĐ", 110), th("NT", 50), th("Tỷ giá thuế", 100), th("Trị giá thuế (VND)", 130),
                 th("Ngày TT", 90), th("Trị giá TT (NT)", 120), th("Tỷ giá TT", 100), th("Đồng Việt Nam TT", 130),
-                th("Chênh lệch VND", 120), th("Chênh lệch " + "NT", 100), th("", 130)
+                th("VND", 110), th("NT", 90), th("Hạch toán chênh lệch", 150), th("", 100)
               )
             ),
             React.createElement("tbody", null, filtered.map(tk => {
@@ -5966,22 +5967,28 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
                   ] : ""),
                 td(chenhLech !== null ? React.createElement("span", { style: { color: Math.abs(chenhLech) < 1000 ? "var(--green-d)" : "#dc2626", fontWeight: 600 } }, fmt(chenhLech, "VND")) : ""),
                 td(chenhLechNT !== null ? React.createElement("span", { style: { color: Math.abs(chenhLechNT) < 0.01 ? "var(--green-d)" : "#dc2626" } }, fmt(chenhLechNT, tk.currency||"USD")) : ""),
+                // Tách nút "Hạch toán chênh lệch" ra cột riêng, đủ rộng — trước đây nhét chung ô nhỏ
+                // với nút Chọn/Xoá bị dồn cục, khó bấm.
                 td(
                   payments.length > 0 && chenhLech && onApplyFxDiff && React.createElement("button", {
                     onClick: () => onApplyFxDiff(payments[payments.length - 1].rowId, taxVND, totalBankVND),
                     title: (chenhLech < 0
                       ? "Trả ÍT hơn ghi nhận → hạch toán LÃI chênh lệch tỷ giá (515)"
                       : "Trả NHIỀU hơn ghi nhận → hạch toán LỖ chênh lệch tỷ giá (635)") + " — áp dụng cho lần thanh toán cuối cùng",
-                    style: { background: chenhLech < 0 ? "#16a34a" : "#dc2626", color: "#fff", border: "none", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer", fontWeight: 600, marginRight: 4 }
-                  }, chenhLech < 0 ? "⚖ HT Lãi 515" : "⚖ HT Lỗ 635"),
-                  pickForRowId && React.createElement("button", {
-                    onClick: () => onPick(tk.id),
-                    style: { background: "var(--green)", color: "#fff", border: "none", borderRadius: 5, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600, marginRight: 4 }
-                  }, "✓ Chọn"),
-                  React.createElement("button", {
-                    onClick: () => removeRow(tk.id),
-                    style: { background: "#fff", color: "#dc2626", border: "1px solid #f5c0c0", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer" }
-                  }, "Xoá")
+                    style: { width: "100%", background: chenhLech < 0 ? "#16a34a" : "#dc2626", color: "#fff", border: "none", borderRadius: 5, padding: "5px 8px", fontSize: 11, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }
+                  }, chenhLech < 0 ? "⚖ HT Lãi 515" : "⚖ HT Lỗ 635")
+                ),
+                td(
+                  React.createElement("div", { style: { display: "flex", gap: 4 } },
+                    pickForRowId && React.createElement("button", {
+                      onClick: () => onPick(tk.id),
+                      style: { background: "var(--green)", color: "#fff", border: "none", borderRadius: 5, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }
+                    }, "✓ Chọn"),
+                    React.createElement("button", {
+                      onClick: () => removeRow(tk.id),
+                      style: { background: "#fff", color: "#dc2626", border: "1px solid #f5c0c0", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer" }
+                    }, "Xoá")
+                  )
                 )
               );
             }))
