@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.85";
+const APP_VERSION = "2026.07.05.86";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4673,17 +4673,19 @@ function ConfirmScreen({
   // sao kê ngân hàng thường ghi rõ "FOR PROFORMA INVOICE NO...") — nếu không tìm được, thử so khớp
   // gần đúng số tiền VND (dung sai 5%, vì số thực trả có thể lệch chút do phí NH/tỷ giá làm tròn).
   const tkCore = s => String(s || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
+  // Tờ khai đã "chốt" (đã hạch toán lãi/lỗ chênh lệch tỷ giá cho lần thanh toán cuối) coi như đã
+  // trả xong hẳn — không cần gợi ý nữa dù có giao dịch nào khác trùng số tiền/số hoá đơn.
+  const isTokhaiClosed = tk => tkPayments(tk).some(p => {
+    const pr = rows.find(rr => rr.id === p.rowId);
+    return pr && pr.fxSplit;
+  });
   const findTokhaiSuggestions = row => {
     if (!(row.tx.debit > 0)) return [];
     const descU = tkCore(row.tx.desc);
     return tokhaiList.filter(tk => {
-      // KHÔNG loại tờ khai đã có GD gắn — 1 tờ khai có thể được trả làm nhiều lần khác ngày (đặt
-      // cọc trước, trả nốt sau...), nên vẫn phải tiếp tục gợi ý cho các lần thanh toán tiếp theo.
-      // CHỈ gợi ý khi nội dung sao kê có nhắc rõ số hoá đơn hoặc số tờ khai — bỏ hẳn kiểu so khớp
-      // "gần đúng số tiền" (trước đây dung sai 5%) vì rất dễ trùng ngẫu nhiên với các giao dịch
-      // hoàn toàn không liên quan (VD trả nợ vay ngân hàng tình cờ có số tiền gần bằng 1 tờ khai
-      // nào đó) — thà bỏ sót còn hơn gợi ý sai. Không tìm thấy tự động thì dùng nút "📋 Chọn tờ khai"
-      // để tự tìm và gắn thủ công.
+      if (isTokhaiClosed(tk)) return false;
+      // KHÔNG loại tờ khai đã có GD gắn (nhưng CHƯA chốt) — 1 tờ khai có thể được trả làm nhiều lần
+      // khác ngày (đặt cọc trước, trả nốt sau...), nên vẫn phải tiếp tục gợi ý cho các lần tiếp theo.
       // "Số hoá đơn" trên tờ khai thường có dạng "A - 25LN0088" (chữ "A" là ký hiệu MẪU hoá đơn,
       // không phải số hoá đơn thật) — nhưng sao kê ngân hàng chỉ ghi số thật "25LN0088", không kèm
       // ký hiệu mẫu. Trước đây so cả chuỗi "A25LN0088" nên không bao giờ khớp được — bỏ phần ký
@@ -4692,6 +4694,17 @@ function ConfirmScreen({
       if (invCore.length >= 4 && descU.includes(invCore)) return true;
       const tkSoCore = String(tk.toKhaiSo || "").replace(/\D/g, "");
       if (tkSoCore.length >= 6 && descU.includes(tkSoCore)) return true;
+      // So khớp theo SỐ TIỀN NGOẠI TỆ ghi rõ trong nội dung giao dịch (VD "13,350 USD") với số còn
+      // phải trả của tờ khai (trị giá HĐ trừ các lần đã trả trước đó, quy đổi theo tỷ giá tính
+      // thuế) — đáng tin cậy vì đây là số tiền THẬT ghi trong sao kê, không phải suy đoán, chỉ cho
+      // dung sai rất nhỏ (0.5%) để tránh trùng ngẫu nhiên với giao dịch không liên quan.
+      const foreignAmt = extractForeignAmt(row.tx.desc, tk.currency);
+      if (foreignAmt > 0) {
+        const remainForeign = tk.tyGiaTinhThue > 0
+          ? (tkTaxVND(tk) - tkTotalPaidVND(tk)) / tk.tyGiaTinhThue
+          : tk.triGiaHoaDon;
+        if (remainForeign > 0 && Math.abs(foreignAmt - remainForeign) / remainForeign <= 0.005) return true;
+      }
       return false;
     });
   };
