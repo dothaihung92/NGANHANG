@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.77";
+const APP_VERSION = "2026.07.05.78";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -5714,9 +5714,13 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
   const handleFile = async e => {
-    const files = e.target.files;
+    // QUAN TRỌNG: phải chuyển e.target.files (FileList "sống", gắn liền với chính ô input) thành
+    // MẢNG THẬT (Array.from) NGAY LẬP TỨC rồi mới được đụng vào e.target.value — nếu reset value
+    // trước, một số trình duyệt sẽ làm rỗng luôn FileList gốc mà biến "files" vẫn đang tham chiếu
+    // tới, khiến bước sau đọc ra 0 file dù người dùng đã chọn file thật (đúng lỗi đã gặp).
+    const files = Array.from(e.target.files || []);
     e.target.value = "";
-    if (!files || !files.length) {
+    if (!files.length) {
       // Trường hợp bấm nút rồi bấm Huỷ/đóng hộp thoại chọn file mà không chọn gì — báo rõ để
       // không bị hiểu nhầm là phần mềm "im lặng không phản ứng" khi thực ra chưa chọn file nào.
       alert("Chưa chọn file nào — hãy bấm lại nút này và chọn ít nhất 1 file tờ khai (.xlsx).");
