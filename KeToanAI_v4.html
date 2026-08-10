@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.84";
+const APP_VERSION = "2026.07.05.85";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4684,7 +4684,11 @@ function ConfirmScreen({
       // hoàn toàn không liên quan (VD trả nợ vay ngân hàng tình cờ có số tiền gần bằng 1 tờ khai
       // nào đó) — thà bỏ sót còn hơn gợi ý sai. Không tìm thấy tự động thì dùng nút "📋 Chọn tờ khai"
       // để tự tìm và gắn thủ công.
-      const invCore = tkCore(tk.soHoaDon);
+      // "Số hoá đơn" trên tờ khai thường có dạng "A - 25LN0088" (chữ "A" là ký hiệu MẪU hoá đơn,
+      // không phải số hoá đơn thật) — nhưng sao kê ngân hàng chỉ ghi số thật "25LN0088", không kèm
+      // ký hiệu mẫu. Trước đây so cả chuỗi "A25LN0088" nên không bao giờ khớp được — bỏ phần ký
+      // hiệu mẫu (chữ cái + dấu gạch ngang ở đầu) trước khi so khớp.
+      const invCore = tkCore(String(tk.soHoaDon || "").replace(/^[A-Za-z]{1,3}\s*-\s*/, ""));
       if (invCore.length >= 4 && descU.includes(invCore)) return true;
       const tkSoCore = String(tk.toKhaiSo || "").replace(/\D/g, "");
       if (tkSoCore.length >= 6 && descU.includes(tkSoCore)) return true;
@@ -5774,6 +5778,7 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     onSave: saveTokhaiList,
     onImportFile: handleImportTokhai,
     pickForRowId: tokhaiPickForRow,
+    pickForRowDesc: tokhaiPickForRow ? (() => { const pr = rows.find(r => r.id === tokhaiPickForRow); return pr ? pr.tx.desc + " — Tiền ra: " + fmt(pr.tx.debit, pr.tx.currency) : ""; })() : "",
     onPick: tkId => attachTokhai(tokhaiPickForRow, tkId),
     onApplyFxDiff: applyFxDiff,
     showToast
@@ -5782,13 +5787,19 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
 
 // ── Bảng quản lý Tờ khai Hải quan NK: xem/sửa tay/nhập từ file tờ khai/xoá, và (khi mở ở chế độ
 // "chọn cho 1 giao dịch") cho chọn 1 tờ khai để gắn thẳng vào GD thanh toán đang xem trên sao kê ──
-function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick, onApplyFxDiff, showToast }) {
+function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onApplyFxDiff, showToast }) {
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
+  // Tìm theo tất cả các cột hiện trên bảng (không chỉ 3 cột như trước) — nhà cung cấp, số tờ khai,
+  // ngày tờ khai, số hoá đơn, ngày HĐ, trị giá, tỷ giá, ghi chú... gõ bất kỳ phần nào cũng lọc được.
   const filtered = list.filter(tk => {
     const s = search.trim().toLowerCase();
     if (!s) return true;
-    return (tk.toKhaiSo||"").toLowerCase().includes(s) || (tk.nhaCungCap||"").toLowerCase().includes(s) || (tk.soHoaDon||"").toLowerCase().includes(s);
+    const haystack = [
+      tk.nhaCungCap, tk.toKhaiSo, tk.ngayToKhai, tk.soHoaDon, tk.ngayHoaDon,
+      tk.triGiaHoaDon, tk.currency, tk.tyGiaTinhThue, tk.ghiChu
+    ].map(v => String(v == null ? "" : v).toLowerCase()).join(" | ");
+    return haystack.includes(s);
   });
   const updateField = (id, field, raw) => {
     const numFields = { triGiaHoaDon: 1, tyGiaTinhThue: 1, bankAmt: 1, bankRate: 1, bankVND: 1 };
@@ -5893,7 +5904,17 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
     style: { background: "#fff", borderRadius: 0, width: "100vw", maxWidth: "100vw", height: "100vh", maxHeight: "100vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,.3)" },
     onClick: e => e.stopPropagation()
   },
-    React.createElement("div", { style: { padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" } },
+    React.createElement("div", { style: { padding: "14px 18px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 } },
+    // Khi mở ở chế độ "chọn tờ khai cho 1 giao dịch", hiện luôn nội dung + số tiền của đúng giao
+    // dịch đó ngay trên đầu bảng — để vừa lướt danh sách tờ khai vừa đối chiếu, khỏi phải nhớ/quay
+    // lại xem sao kê.
+    pickForRowId && pickForRowDesc && React.createElement("div", {
+      style: { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#78350f" }
+    },
+      React.createElement("span", { style: { fontWeight: 700 } }, "Giao dịch đang chọn: "),
+      pickForRowDesc
+    ),
+    React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" } },
       React.createElement("div", { style: { fontWeight: 700, fontSize: 16 } }, "📋 Tờ Khai Hải quan NK"),
       pickForRowId && React.createElement("div", { style: { background: "#eef2ff", color: "#3730a3", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600 } }, "Đang chọn tờ khai để gắn vào giao dịch thanh toán — bấm \"✓ Chọn\" ở dòng phù hợp"),
       React.createElement("input", {
@@ -5907,6 +5928,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, onPick
       ),
       React.createElement("button", { className: "btn btn-outline", style: { height: 32, fontSize: 12 }, onClick: addBlank }, "+ Thêm tay"),
       React.createElement("button", { onClick: onClose, style: { height: 32, padding: "0 12px", borderRadius: 6, border: "1px solid var(--border)", background: "#fff", cursor: "pointer", fontSize: 13 } }, "Đóng")
+    )
     ),
     React.createElement("div", { style: { overflow: "auto", flex: 1 } },
       list.length === 0
