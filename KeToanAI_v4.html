@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.90";
+const APP_VERSION = "2026.07.05.91";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1459,40 +1459,11 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
         });
         return;
       }
-      // GD đã gắn Tờ khai NK và bấm "Hạch toán chênh lệch tỷ giá" → tách thành 2 dòng trong cùng
-      // chứng từ, đúng bản chất kế toán (xem giải thích chi tiết ở applyFxDiff trong ConfirmScreen):
-      //  • LÃI (trả ít hơn ghi nhận): Nợ 331/Có ngân hàng (đúng số tiền đã trả) + Nợ 331/Có 515 (phần
-      //    chênh lệch còn lại để tất toán đủ công nợ ban đầu, không đụng đến tài khoản ngân hàng).
-      //  • LỖ (trả nhiều hơn ghi nhận): Nợ 331/Có ngân hàng (đúng số nợ gốc) + Nợ 635/Có ngân hàng
-      //    (phần trả thêm, đúng bằng khoản lỗ tỷ giá).
-      if (r.fxSplit) {
-        // "own" = số tiền THẬT của đúng dòng giao dịch này (đã tự quy đổi VND nếu là TK ngoại tệ) —
-        // dùng số của riêng dòng này (không phải tổng cả tờ khai) để vẫn đúng khi 1 tờ khai có nhiều
-        // lần thanh toán khác nhau, chỉ dòng ĐÓNG NỢ (dòng bấm nút hạch toán) mới cõng phần chênh lệch.
-        const { kind, diff } = r.fxSplit;
-        const own = bookAmt;
-        const desc = (r.tx.desc || "").slice(0, 255);
-        const mkRow = (idx, nRow, nCo, amt, label) => {
-          const row = new Array(header.length).fill("");
-          const d = `${desc} [${label}]`.slice(0, 255);
-          row[0] = "0"; row[1] = "0";
-          row[2] = r.tx.date; row[3] = r.tx.date;
-          row[4] = buildVoucherNo("UNC", r.tx.date, `${seq}.${idx}`, bankAcct, accountNo);
-          row[5] = accountNo || ""; row[6] = bankName || "";
-          row[9] = maDoiTuong; row[8] = d; row[19] = d;
-          row[20] = nRow; row[21] = nCo; row[22] = amt;
-          row[47] = seq;
-          data.push(row);
-        };
-        if (kind === "gain") {
-          mkRow(1, hach, bankAcct || "1121", own, "Thanh toán");
-          mkRow(2, hach, "515", diff, "Lãi chênh lệch tỷ giá");
-        } else {
-          mkRow(1, hach, bankAcct || "1121", own - diff, "Thanh toán (đã trừ phần lỗ tỷ giá)");
-          mkRow(2, "635", bankAcct || "1121", diff, "Lỗ chênh lệch tỷ giá");
-        }
-        return;
-      }
+      // GD đã gắn Tờ khai NK và bấm "Hạch toán chênh lệch tỷ giá": UNC giờ CHỈ ghi đúng số tiền THẬT
+      // đã trả qua ngân hàng (1 dòng bình thường, không tách nữa) — phần chênh lệch lãi/lỗ tỷ giá
+      // được xuất RIÊNG bằng nút "⚖ Xuất hạch toán lãi lỗ tỷ giá" (file "Chứng từ nghiệp vụ khác"),
+      // đúng chuẩn kế toán: khoản điều chỉnh không phát sinh tiền qua ngân hàng thì không nên gộp
+      // chung vào phiếu chi tiền — tách riêng để không ghi trùng/lệch số tiền chi thực tế.
       const row = new Array(header.length).fill("");
       row[0] = "0";
       row[1] = "0";
@@ -1522,6 +1493,53 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
     }
   } catch (e) {
     alert("Lỗi xuất UNC: " + e.message);
+    console.error(e);
+  }
+}
+
+// ── Xuất hạch toán LÃI/LỖ chênh lệch tỷ giá riêng (Phiếu kế toán khác) ──────────────────────────
+// Theo đúng mẫu "Chứng từ nghiệp vụ khác" của MISA — dùng cho khoản điều chỉnh KHÔNG phát sinh tiền
+// qua ngân hàng (chỉ là bút toán sổ sách), nên tách khỏi UNC/UNT để không ghi trùng/lệch số tiền chi
+// thực tế. Gom TẤT CẢ giao dịch đã bấm "⚖ Hạch toán chênh lệch" (r.fxSplit) thành 1 file xuất 1 lần.
+function exportFxDiff(rows, coName, bankAcct, accountNo) {
+  try {
+    const fxRows = rows.filter(r => r.confirmed === "yes" && r.fxSplit);
+    if (!fxRows.length) { alert("Không có giao dịch nào đã hạch toán chênh lệch tỷ giá để xuất."); return; }
+    const header = ["Hiển thị trên sổ", "Ngày chứng từ (*)", "Ngày hạch toán (*)", "Số chứng từ (*)", "Diễn giải", "Hạn thanh toán", "Loại tiền", "Tỷ giá", "Diễn giải (Hạch toán)", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Số tiền quy đổi", "Đối tượng Nợ", "Đối tượng Có", "TK ngân hàng", "Khoản mục CP", "Đơn vị", "Đối tượng THCP", "Công trình", "Hợp đồng bán", "CP không hợp lý", "Mã thống kê", "Diễn giải (Thuế)", "TK thuế GTGT", "Tiền thuế GTGT", "% thuế GTGT", "Tỷ lệ tính thuế (Thuế suất KHAC)", "Giá trị HHDV chưa thuế", "Mẫu số HĐ", "Ngày hóa đơn", "Ký hiệu HĐ", "Số hóa đơn", "Nhóm HHDV mua vào", "Mã đối tượng thuế", "Tên đối tượng thuế", "Mã số thuế đối tượng thuế"];
+    const data = [header];
+    fxRows.forEach((r, i) => {
+      const origIdx = rows.indexOf(r);
+      const seq = (origIdx >= 0 ? origIdx : i) + 1;
+      const { kind, diff } = r.fxSplit;
+      const hach = r.confirmedHach || "331";
+      // LÃI (trả ít hơn ghi nhận): Nợ 331 (tất toán nốt phần nợ còn lại) / Có 515 (ghi nhận lãi).
+      // LỖ (trả nhiều hơn ghi nhận): Nợ 635 (ghi nhận lỗ) / Có 331 (khép lại phần nợ đã trả dư).
+      const noBen = kind === "gain" ? hach : "635";
+      const coBen = kind === "gain" ? "515" : hach;
+      const desc = `Chênh lệch tỷ giá ${kind === "gain" ? "LÃI" : "LỖ"} - ${r.confirmedName || ""} - ${(r.tx.desc || "").slice(0, 150)}`.slice(0, 255);
+      const row = new Array(header.length).fill("");
+      row[0] = "0";
+      row[1] = r.tx.date;
+      row[2] = r.tx.date;
+      row[3] = buildVoucherNo("PKT", r.tx.date, seq, bankAcct, accountNo);
+      row[4] = desc;
+      row[6] = "VND";
+      row[8] = desc;
+      row[9] = noBen;
+      row[10] = coBen;
+      row[11] = diff;
+      row[12] = diff;
+      if (r.confirmedMST && noBen === hach) row[13] = r.confirmedMST;
+      if (r.confirmedMST && coBen === hach) row[14] = r.confirmedMST;
+      data.push(row);
+    });
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    ws["!cols"] = header.map((_, i) => ({ wch: i === 4 || i === 8 ? 55 : i === 3 ? 18 : 14 }));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Chứng từ nghiệp vụ khác");
+    XLSX.writeFile(wb, `PKT_ChenhLechTyGia_${coName}_${new Date().toLocaleDateString("vi-VN").replace(/\//g, "-")}.xlsx`);
+  } catch (e) {
+    alert("Lỗi xuất hạch toán lãi lỗ tỷ giá: " + e.message);
     console.error(e);
   }
 }
@@ -5358,7 +5376,13 @@ function ConfirmScreen({
     onClick:()=>exportUNC(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []),
       (activeTabAcc&&activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc&&activeTabAcc.label),
       (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast)
-  }, "\uD83D\uDCE5 Xuất UNC"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCE5 Xu\u1EA5t UNC"),/*#__PURE__*/React.createElement("button",{
+    className:"btn btn-outline",
+    title:"Xuất bút toán hạch toán lãi/lỗ chênh lệch tỷ giá (đã bấm ⚖ Hạch toán chênh lệch) theo mẫu Chứng từ nghiệp vụ khác MISA",
+    style: { borderColor: "#7c3aed", color: "#7c3aed" },
+    onClick:()=>exportFxDiff(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []),
+      (activeTabAcc&&activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc&&activeTabAcc.label))
+  }, "⚖ Xuất lãi/lỗ tỷ giá"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-green",
     onClick: handleSaveAndLearn
   }, "\u2713 L\u01B0u & h\u1ECDc"))), addMode && /*#__PURE__*/React.createElement("div", {
@@ -6001,9 +6025,9 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                 React.createElement("th", { colSpan: 2, style: { padding: "4px 8px" } }, "")
               ),
               React.createElement("tr", null,
-                th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 90), th("Số hoá đơn", 130), th("Ngày HĐ", 90),
+                th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 115), th("Số hoá đơn", 130), th("Ngày HĐ", 115),
                 th("Trị giá HĐ", 110), th("NT", 50), th("Tỷ giá thuế", 100), th("Trị giá thuế (VND)", 130),
-                th("Ngày TT", 90), th("Trị giá TT (NT)", 120), th("Tỷ giá TT", 100), th("Đồng Việt Nam TT", 130),
+                th("Ngày TT", 110), th("Trị giá TT (NT)", 120), th("Tỷ giá TT", 100), th("Đồng Việt Nam TT", 130),
                 th("VND", 110), th("NT", 90), th("Hạch toán chênh lệch", 150), th("", 100)
               ),
               // Dòng lọc riêng TỪNG CỘT — chỉ đặt cho các cột dữ liệu gốc (không đặt cho cột tính
