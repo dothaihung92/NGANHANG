@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.96";
+const APP_VERSION = "2026.07.05.97";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4895,6 +4895,20 @@ function ConfirmScreen({
     }));
     showToast("✓ Đã hạch toán chênh lệch tỷ giá " + (kind === "gain" ? "LÃI (515)" : "LỖ (635)") + ": " + fmt(Math.abs(diff), "VND"));
   };
+  // Cho sửa tay TRỰC TIẾP ngay ở bảng "Tờ Khai NK" (cột Chênh lệch) sau khi đã bấm "HT Lãi/Lỗ" —
+  // không cần phải bấm "Xuất lãi/lỗ đã chọn" mới có chỗ chỉnh sửa như trước. signedVal ÂM = LÃI
+  // (515), DƯƠNG = LỖ (635); giá trị 0 thì bỏ hạch toán (xoá fxSplit) trên đúng dòng giao dịch đó.
+  const editFxDiff = (rowId, signedVal) => {
+    const val = Math.round(signedVal || 0);
+    if (!val) {
+      setRowsH(prev => prev.map(r => r.id !== rowId ? r : { ...r, fxSplit: undefined }));
+      showToast("Đã bỏ hạch toán chênh lệch tỷ giá (bằng 0)", "warn");
+      return;
+    }
+    const kind = val < 0 ? "gain" : "loss";
+    setRowsH(prev => prev.map(r => r.id !== rowId ? r : { ...r, fxSplit: { kind, diff: Math.abs(val) } }));
+    showToast("✓ Đã sửa chênh lệch tỷ giá " + (kind === "gain" ? "LÃI (515)" : "LỖ (635)") + ": " + fmt(Math.abs(val), "VND"));
+  };
   // Xuất lãi/lỗ tỷ giá CHỈ CHO CÁC TỜ KHAI ĐÃ TICK CHỌN trong bảng Tờ Khai NK. Trước đây chỉ xuất
   // đúng những dòng ĐÃ BẤM "⚖ HT Lãi/Lỗ" riêng lẻ trước đó — nên chọn nhiều tờ khai nhưng chưa kịp
   // bấm tay từng dòng thì xuất ra thiếu (VD chọn 10 tờ khai nhưng chỉ có 2 dòng đã bấm nút → chỉ ra
@@ -5954,6 +5968,8 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
       : null,
     splitInProgress: !!(splitFlow && splitFlow.rowId === tokhaiPickForRow),
     onApplyFxDiff: applyFxDiff,
+    onEditFxDiff: editFxDiff,
+    bankRows: rows,
     onExportFxDiff: exportFxDiffForTk,
     showToast
   }), fxPreviewOpen && /*#__PURE__*/React.createElement(FxDiffPreviewModal, {
@@ -6030,11 +6046,15 @@ function FxDiffPreviewModal({ rows, onClose, onExport }) {
 
 // ── Bảng quản lý Tờ khai Hải quan NK: xem/sửa tay/nhập từ file tờ khai/xoá, và (khi mở ở chế độ
 // "chọn cho 1 giao dịch") cho chọn 1 tờ khai để gắn thẳng vào GD thanh toán đang xem trên sao kê ──
-function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onPickSplit, splitRemainingVND, splitInProgress, onApplyFxDiff, onExportFxDiff, showToast }) {
+function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onPickSplit, splitRemainingVND, splitInProgress, onApplyFxDiff, onEditFxDiff, bankRows, onExportFxDiff, showToast }) {
   // Số tiền tự gõ tay cho từng tờ khai khi gối đầu (VD tổng 5.000$ nhưng muốn gắn đúng 3.000$ cho
   // lô 1 dù công nợ còn thiếu khác con số đó) — key theo tk.id, reset mỗi khi đổi giao dịch đang chọn.
   const [splitAmt, setSplitAmt] = useState({});
   React.useEffect(() => { setSplitAmt({}); }, [pickForRowId]);
+  // Tra cứu nhanh dòng giao dịch NH theo id để biết đã "HT Lãi/Lỗ" (r.fxSplit) hay chưa — cho phép
+  // sửa tay ngay số tiền chênh lệch tại bảng này, không cần mở "Xuất lãi/lỗ đã chọn" mới sửa được.
+  const rowsById = React.useMemo(() => { const m = {}; (bankRows || []).forEach(r => { m[r.id] = r; }); return m; }, [bankRows]);
+  const [chenhLechEdit, setChenhLechEdit] = useState({});
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
   const [selectedTk, setSelectedTk] = useState(new Set());
@@ -6271,6 +6291,12 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
               const totalBankAmt = payments.reduce((s, p) => s + (p.bankAmt || 0), 0);
               const chenhLech = payments.length ? totalBankVND - taxVND : null;
               const chenhLechNT = payments.length ? totalBankAmt - (tk.triGiaHoaDon || 0) : null;
+              // lastRow/booked: đã bấm "HT Lãi/Lỗ" cho lần thanh toán cuối cùng chưa — nếu rồi thì cho
+              // sửa tay trực tiếp signedVal (ÂM = lãi 515, DƯƠNG = lỗ 635) ngay tại đây.
+              const lastPayment = payments.length ? payments[payments.length - 1] : null;
+              const lastRow = lastPayment ? rowsById[lastPayment.rowId] : null;
+              const booked = !!(lastRow && lastRow.fxSplit);
+              const signedVal = booked ? (lastRow.fxSplit.kind === "gain" ? -lastRow.fxSplit.diff : lastRow.fxSplit.diff) : chenhLech;
               const payRow = (key, child) => React.createElement("div", { key, style: { display: "flex", alignItems: "center", gap: 2, marginBottom: 2 } }, child);
               return React.createElement("tr", { key: tk.id },
                 td(React.createElement("input", { type: "checkbox", checked: selectedTk.has(tk.id), onChange: () => toggleSelectTk(tk.id) })),
@@ -6303,18 +6329,35 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                     ))),
                     payments.length > 1 && React.createElement("div", { key: "total", style: { fontWeight: 700, fontSize: 12, borderTop: "1px solid #ddd", marginTop: 2, paddingTop: 2 } }, "Tổng: " + fmt(totalBankVND, "VND"))
                   ] : ""),
-                td(chenhLech !== null ? React.createElement("span", { style: { color: Math.abs(chenhLech) < 1000 ? "var(--green-d)" : "#dc2626", fontWeight: 600 } }, fmt(chenhLech, "VND")) : ""),
-                td(chenhLechNT !== null ? React.createElement("span", { style: { color: Math.abs(chenhLechNT) < 0.01 ? "var(--green-d)" : "#dc2626" } }, fmt(chenhLechNT, tk.currency||"USD")) : ""),
+                td(chenhLech === null ? "" : booked
+                  ? React.createElement("input", {
+                      value: chenhLechEdit[tk.id] != null ? chenhLechEdit[tk.id] : String(signedVal),
+                      onChange: e => setChenhLechEdit(prev => ({ ...prev, [tk.id]: e.target.value })),
+                      onBlur: () => {
+                        const v = chenhLechEdit[tk.id];
+                        setChenhLechEdit(prev => { const n = { ...prev }; delete n[tk.id]; return n; });
+                        if (v == null) return;
+                        const neg = /^\s*-/.test(v);
+                        const parsed = parseNum(v, false) * (neg ? -1 : 1);
+                        onEditFxDiff && lastRow && onEditFxDiff(lastRow.id, parsed);
+                      },
+                      title: "Sửa tay số tiền chênh lệch đã hạch toán — số ÂM = LÃI (515, xanh), số DƯƠNG = LỖ (635, đỏ)",
+                      style: { width: 110, fontWeight: 700, fontSize: 13, color: signedVal < 0 ? "var(--green-d)" : signedVal > 0 ? "#dc2626" : "inherit", border: "1px solid var(--border)", borderRadius: 4, padding: "3px 5px" }
+                    })
+                  : React.createElement("span", { style: { color: chenhLech < 0 ? "var(--green-d)" : chenhLech > 0 ? "#dc2626" : "inherit", fontWeight: 600 } }, fmt(chenhLech, "VND"))),
+                td(chenhLechNT !== null ? React.createElement("span", { style: { color: chenhLechNT < -0.01 ? "var(--green-d)" : chenhLechNT > 0.01 ? "#dc2626" : "inherit" } }, fmt(chenhLechNT, tk.currency||"USD")) : ""),
                 // Tách nút "Hạch toán chênh lệch" ra cột riêng, đủ rộng — trước đây nhét chung ô nhỏ
                 // với nút Chọn/Xoá bị dồn cục, khó bấm.
                 td(
                   payments.length > 0 && chenhLech && onApplyFxDiff && React.createElement("button", {
                     onClick: () => onApplyFxDiff(payments[payments.length - 1].rowId, taxVND, totalBankVND),
-                    title: (chenhLech < 0
-                      ? "Trả ÍT hơn ghi nhận → hạch toán LÃI chênh lệch tỷ giá (515)"
-                      : "Trả NHIỀU hơn ghi nhận → hạch toán LỖ chênh lệch tỷ giá (635)") + " — áp dụng cho lần thanh toán cuối cùng",
-                    style: { width: "100%", background: chenhLech < 0 ? "#16a34a" : "#dc2626", color: "#fff", border: "none", borderRadius: 5, padding: "5px 8px", fontSize: 11, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }
-                  }, chenhLech < 0 ? "⚖ HT Lãi 515" : "⚖ HT Lỗ 635")
+                    title: (booked
+                      ? "Đã hạch toán — bấm lại để TÍNH LẠI theo đúng số liệu gốc (mất số đã sửa tay ở ô Chênh lệch)"
+                      : (chenhLech < 0
+                        ? "Trả ÍT hơn ghi nhận → hạch toán LÃI chênh lệch tỷ giá (515)"
+                        : "Trả NHIỀU hơn ghi nhận → hạch toán LỖ chênh lệch tỷ giá (635)")) + " — áp dụng cho lần thanh toán cuối cùng",
+                    style: { width: "100%", background: booked ? "#fff" : (chenhLech < 0 ? "#16a34a" : "#dc2626"), color: booked ? "#374151" : "#fff", border: booked ? "1px solid var(--border)" : "none", borderRadius: 5, padding: "5px 8px", fontSize: 11, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" }
+                  }, booked ? "↻ Tính lại" : (chenhLech < 0 ? "⚖ HT Lãi 515" : "⚖ HT Lỗ 635"))
                 ),
                 td(
                   React.createElement("div", { style: { display: "flex", gap: 4 } },
