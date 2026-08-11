@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.97";
+const APP_VERSION = "2026.07.05.98";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -2340,11 +2340,17 @@ function HomeScreen({
     setForm({name:"",mst:"",note:""});
     setShowAdd(false);
   };
+  // Công ty đang làm dở (còn "Dữ liệu chưa hoàn thành" / nút "Tiếp tục") luôn hiện lên ĐẦU DANH SÁCH
+  // trước, bất kể đang sắp theo tiêu chí nào (tên/mới/số từ khoá) — tiêu chí sắp xếp chỉ áp dụng
+  // NHƯ THỨ TỰ PHỤ trong từng nhóm (đang làm dở trước, còn lại sau).
   const filtered = companies.filter(co => {
     const q = search.toLowerCase().trim();
     if (!q) return true;
     return co.name.toLowerCase().includes(q) || (co.mst || "").includes(q) || (co.note || "").toLowerCase().includes(q);
   }).sort((a, b) => {
+    const aWip = getCoSessions(a).length > 0 ? 1 : 0;
+    const bWip = getCoSessions(b).length > 0 ? 1 : 0;
+    if (aWip !== bWip) return bWip - aWip;
     if (sortBy === "name") return a.name.localeCompare(b.name, "vi");
     if (sortBy === "recent") return b.created.localeCompare(a.created);
     if (sortBy === "kwcount") return (LS.get("dict_" + b.id) || []).length - (LS.get("dict_" + a.id) || []).length;
