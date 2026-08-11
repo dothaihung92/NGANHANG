@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.06.04";
+const APP_VERSION = "2026.07.06.05";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1413,7 +1413,7 @@ async function exportUNT(rows, coName, bankAcct, accountNo, bankName, showToast)
   }
 }
 
-async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast) {
+async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast, tokhaiList) {
   try {
     // Dòng bên kia của 1 giao dịch chuyển khoản nội bộ (hạch toán = "X") chỉ là placeholder tự động
     // đánh dấu — bên đã bấm xác nhận nội bộ đã hạch toán đủ cả 2 vế bằng mã TK thật rồi, đưa dòng "X"
@@ -1452,10 +1452,14 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
       // đây đúng là lỗi người dùng gặp phải: NCC nước ngoài không có MST VN bị gán nhầm mã "KL").
       // Nhà cung cấp chưa có MST (thường gặp với NCC nước ngoài, VD gắn từ Tờ Khai NK) → dùng luôn
       // TÊN nhà cung cấp làm Mã đối tượng (không để trống nữa) để cột này không bị rỗng trên MISA.
+      // Lấy ĐÚNG NGUYÊN VĂN tên đang gõ trong ô "Nhà cung cấp" của tờ khai đã gắn (r.confirmedToKhaiId)
+      // tại THỜI ĐIỂM XUẤT — không dùng bản chụp cũ (r.confirmedName lúc gắn), vì nếu người dùng sửa
+      // lại tên nhà cung cấp trong bảng Tờ Khai NK sau khi đã gắn, xuất UNC vẫn phải theo tên MỚI NHẤT.
       // NHƯNG giao dịch chuyển khoản NỘI BỘ (r.isInternal, confirmedName lúc này chỉ là nhãn tự sinh
       // "⇔ Nội bộ – Chuyển sang/Nhận từ..." chứ không phải tên đối tác thật) thì KHÔNG được điền vào
       // Mã đối tượng/Tên đối tượng — để trống, đúng bản chất là chuyển tiền giữa các TK của mình.
-      const objectName = r.isInternal ? "" : (r.confirmedName || "");
+      const linkedTk = r.confirmedToKhaiId ? (tokhaiList || []).find(t => t.id === r.confirmedToKhaiId) : null;
+      const objectName = r.isInternal ? "" : ((linkedTk && linkedTk.nhaCungCap) || r.confirmedName || "");
       const maDoiTuong = r.confirmedMST || objectName;
       // Số tiền dùng để ghi sổ: nếu là TK USD và đã lấy được tỷ giá → dùng số VND đã quy đổi; nếu là
       // TK USD nhưng KHÔNG lấy được tỷ giá (lỗi mạng/không có dữ liệu ngày đó) → vẫn giữ số USD gốc
@@ -5555,7 +5559,7 @@ function ConfirmScreen({
     title:"Xuất chứng từ chi tiền gửi (tiền ra) theo mẫu import MISA",
     onClick:()=>exportUNC(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []),
       (activeTabAcc&&activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc&&activeTabAcc.label),
-      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast)
+      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast, tokhaiList)
   }, "\uD83D\uDCE5 Xu\u1EA5t UNC"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-green",
     onClick: handleSaveAndLearn
