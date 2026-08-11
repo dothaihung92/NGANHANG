@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.06.03";
+const APP_VERSION = "2026.07.06.04";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1452,7 +1452,11 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
       // đây đúng là lỗi người dùng gặp phải: NCC nước ngoài không có MST VN bị gán nhầm mã "KL").
       // Nhà cung cấp chưa có MST (thường gặp với NCC nước ngoài, VD gắn từ Tờ Khai NK) → dùng luôn
       // TÊN nhà cung cấp làm Mã đối tượng (không để trống nữa) để cột này không bị rỗng trên MISA.
-      const maDoiTuong = r.confirmedMST || r.confirmedName || "";
+      // NHƯNG giao dịch chuyển khoản NỘI BỘ (r.isInternal, confirmedName lúc này chỉ là nhãn tự sinh
+      // "⇔ Nội bộ – Chuyển sang/Nhận từ..." chứ không phải tên đối tác thật) thì KHÔNG được điền vào
+      // Mã đối tượng/Tên đối tượng — để trống, đúng bản chất là chuyển tiền giữa các TK của mình.
+      const objectName = r.isInternal ? "" : (r.confirmedName || "");
+      const maDoiTuong = r.confirmedMST || objectName;
       // Số tiền dùng để ghi sổ: nếu là TK USD và đã lấy được tỷ giá → dùng số VND đã quy đổi; nếu là
       // TK USD nhưng KHÔNG lấy được tỷ giá (lỗi mạng/không có dữ liệu ngày đó) → vẫn giữ số USD gốc
       // và cảnh báo cuối cùng để người dùng tự bổ sung tỷ giá, tránh xuất thiếu dòng.
@@ -1482,7 +1486,7 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
           row[5] = accountNo || "";
           row[6] = bankName || "";
           row[9] = maDoiTuong;
-          row[10] = r.confirmedName || "";
+          row[10] = objectName;
           row[8] = desc;
           row[19] = desc;
           row[20] = p.hach;
@@ -1507,7 +1511,7 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
       row[5] = accountNo || "";
       row[6] = bankName || "";
       row[9] = maDoiTuong;
-      row[10] = r.confirmedName || "";
+      row[10] = objectName;
       row[8] = (r.tx.desc || "").slice(0, 255);
       row[19] = (r.tx.desc || "").slice(0, 255);
       row[20] = hach;
