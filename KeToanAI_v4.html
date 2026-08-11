@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.06.02";
+const APP_VERSION = "2026.07.06.03";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1450,9 +1450,9 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
       // BÊN THU (131), tuyệt đối KHÔNG dùng cho bên CHI/nhà cung cấp (331), vì MISA sẽ tự đổi tên
       // đối tượng thành "Khách không lấy hóa đơn" (sai hoàn toàn, kể cả khi đã có tên NCC thật —
       // đây đúng là lỗi người dùng gặp phải: NCC nước ngoài không có MST VN bị gán nhầm mã "KL").
-      // Nhà cung cấp chưa có MST (thường gặp với NCC nước ngoài) thì để TRỐNG Mã đối tượng, nhưng vẫn
-      // LUÔN điền Tên đối tượng (row[10] bên dưới) bằng đúng tên NCC đã xác nhận.
-      const maDoiTuong = r.confirmedMST || "";
+      // Nhà cung cấp chưa có MST (thường gặp với NCC nước ngoài, VD gắn từ Tờ Khai NK) → dùng luôn
+      // TÊN nhà cung cấp làm Mã đối tượng (không để trống nữa) để cột này không bị rỗng trên MISA.
+      const maDoiTuong = r.confirmedMST || r.confirmedName || "";
       // Số tiền dùng để ghi sổ: nếu là TK USD và đã lấy được tỷ giá → dùng số VND đã quy đổi; nếu là
       // TK USD nhưng KHÔNG lấy được tỷ giá (lỗi mạng/không có dữ liệu ngày đó) → vẫn giữ số USD gốc
       // và cảnh báo cuối cùng để người dùng tự bổ sung tỷ giá, tránh xuất thiếu dòng.
