@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.99";
+const APP_VERSION = "2026.07.06.00";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -583,11 +583,35 @@ function parseToKhaiSheet(rows) {
   const tenIdx = nxkIdx >= 0 ? tkFindLabelRow(rows, "Tên", nxkIdx + 1) : -1;
   const nhaCungCap = tenIdx >= 0 ? (tkValuesAfterLabel(rows[tenIdx], "Tên")[0] || "") : "";
   const ghiChu = String(tkLabelValue(rows, "Phần ghi chú", 0) || "");
+  const { thueNK, thueGTGT } = tkTaxSummary(rows);
   return {
     id: uid(), toKhaiSo: String(toKhaiSo), ngayToKhai, nhaCungCap: String(nhaCungCap).trim(),
     soHoaDon: String(soHoaDon).trim(), ngayHoaDon: (ngayHoaDon.match(/\d{1,2}\/\d{1,2}\/\d{4}/) || [""])[0],
-    triGiaHoaDon, currency, tyGiaTinhThue, ghiChu, created: new Date().toLocaleDateString("vi-VN")
+    triGiaHoaDon, currency, tyGiaTinhThue, thueNK, thueGTGT, ghiChu, created: new Date().toLocaleDateString("vi-VN")
   };
+}
+// Đọc TỔNG tiền Thuế nhập khẩu + Thuế GTGT NK của CẢ tờ khai (không phải từng dòng hàng) từ bảng
+// tổng hợp "Tên sắc thuế" / "Tổng tiền thuế" (VD: dòng "V  Thuế GTGT" = 80.908.850) — bảng này liệt
+// kê tối đa 6 sắc thuế, cộng dồn theo tên (khớp chuỗi "gtgt" / "nhập khẩu", không phân biệt hoa
+// thường) vì mã chữ cái đứng trước tên (V, I...) không cố định giữa các file/loại hình tờ khai.
+function tkTaxSummary(rows) {
+  const hdrIdx = tkFindLabelRow(rows, "Tên sắc thuế", 0);
+  if (hdrIdx < 0) return { thueNK: 0, thueGTGT: 0 };
+  const hdrRow = rows[hdrIdx];
+  const nameCol = hdrRow.findIndex(c => typeof c === "string" && c.trim() === "Tên sắc thuế");
+  const valCol = hdrRow.findIndex(c => typeof c === "string" && c.trim() === "Tổng tiền thuế");
+  if (nameCol < 0 || valCol < 0) return { thueNK: 0, thueGTGT: 0 };
+  let thueNK = 0, thueGTGT = 0;
+  for (let r = hdrIdx + 1; r <= hdrIdx + 6 && r < rows.length; r++) {
+    const row = rows[r];
+    if (!row) continue;
+    const name = String(row[nameCol] || "").trim().toLowerCase();
+    if (!name) continue;
+    const val = parseNum(row[valCol], false);
+    if (name.includes("gtgt")) thueGTGT += val;
+    else if (name.includes("nhập khẩu") || name.includes("nhap khau")) thueNK += val;
+  }
+  return { thueNK, thueGTGT };
 }
 // Trị giá tính thuế (VND) LUÔN tính = Trị giá HĐ × Tỷ giá tính thuế — đúng công thức bảng theo dõi
 // của kế toán, thay vì đọc trực tiếp ô "Tổng trị giá tính thuế" trên tờ khai (một số file không có
@@ -6118,7 +6142,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
     return 0;
   });
   const updateField = (id, field, raw) => {
-    const numFields = { triGiaHoaDon: 1, tyGiaTinhThue: 1, bankAmt: 1, bankRate: 1, bankVND: 1 };
+    const numFields = { triGiaHoaDon: 1, tyGiaTinhThue: 1, thueNK: 1, thueGTGT: 1, bankAmt: 1, bankRate: 1, bankVND: 1 };
     const value = numFields[field] ? parseNum(raw, field === "triGiaHoaDon" || field === "bankAmt") : raw;
     onSave(list.map(tk => tk.id === id ? { ...tk, [field]: value } : tk));
   };
@@ -6267,7 +6291,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
               React.createElement("tr", null,
                 React.createElement("th", { style: { padding: "4px 8px" } }, ""),
                 React.createElement("th", { colSpan: 5, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TỜ KHAI HẢI QUAN NK"),
-                React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TRỊ GIÁ"),
+                React.createElement("th", { colSpan: 6, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TRỊ GIÁ"),
                 React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#1d4ed8", background: "#eef2ff" } }, "CHỨNG TỪ NGÂN HÀNG"),
                 React.createElement("th", { colSpan: 2, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "CHÊNH LỆCH"),
                 React.createElement("th", { colSpan: 2, style: { padding: "4px 8px" } }, "")
@@ -6286,6 +6310,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                 ),
                 th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 115), th("Số hoá đơn", 130), th("Ngày HĐ", 115),
                 th("Trị giá HĐ", 110), th("NT", 50), th("Tỷ giá thuế", 100), th("Trị giá thuế (VND)", 130),
+                th("Thuế NK", 110), th("Thuế GTGT NK", 120),
                 th("Ngày TT", 110), th("Trị giá TT (NT)", 120), th("Tỷ giá TT", 100), th("Đồng Việt Nam TT", 130),
                 th("VND", 110), th("NT", 90), th("Hạch toán chênh lệch", 150), th("", 100)
               ),
@@ -6301,7 +6326,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("triGiaHoaDon")),
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("currency")),
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("tyGiaTinhThue")),
-                React.createElement("td", { colSpan: 9, style: { padding: "3px 6px" } })
+                React.createElement("td", { colSpan: 11, style: { padding: "3px 6px" } })
               )
             ),
             React.createElement("tbody", null, filtered.map(tk => {
@@ -6331,6 +6356,10 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                 // Trị giá thuế = Trị giá HĐ × Tỷ giá tính thuế — LUÔN tự tính, hiện định dạng số tiền
                 // (không cho sửa tay trực tiếp; muốn đổi thì sửa Trị giá HĐ hoặc Tỷ giá tính thuế).
                 td(React.createElement("div", { style: { padding: "3px 4px", fontWeight: 600 } }, taxVND ? fmt(taxVND, "VND") : "")),
+                // Thuế NK / Thuế GTGT NK — đọc từ bảng tổng hợp "Tên sắc thuế" trên tờ khai lúc import
+                // (tkTaxSummary), cho sửa tay nếu cần đối chiếu lại với số thực tế đã nộp.
+                td(numInput(tk, "thueNK")),
+                td(numInput(tk, "thueGTGT")),
                 // 1 tờ khai có thể có NHIỀU lần thanh toán khác ngày — mỗi lần hiện 1 dòng riêng
                 // trong cùng ô, có nút ✕ để bỏ gắn đúng lần đó (không ảnh hưởng các lần khác).
                 td(payments.length
