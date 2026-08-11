@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.06.01";
+const APP_VERSION = "2026.07.06.02";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1446,10 +1446,13 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
       const origIdx = rows.indexOf(r);
       const seq = (origIdx >= 0 ? origIdx : i) + 1;
       const hach = r.confirmedHach || "331";
-      // Luôn điền Mã đối tượng nếu GD đã có MST xác nhận, bất kể hạch toán là gì (VD hoàn tiền cọc
-      // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
-      // (khách lẻ) làm mặc định khi hạch toán 131/331 mà chưa có MST.
-      const maDoiTuong = r.confirmedMST || (hach === "331" ? "KL" : "");
+      // "KL" là mã hệ thống CỐ ĐỊNH của MISA nghĩa là "Khách lẻ không lấy hoá đơn" — chỉ áp dụng cho
+      // BÊN THU (131), tuyệt đối KHÔNG dùng cho bên CHI/nhà cung cấp (331), vì MISA sẽ tự đổi tên
+      // đối tượng thành "Khách không lấy hóa đơn" (sai hoàn toàn, kể cả khi đã có tên NCC thật —
+      // đây đúng là lỗi người dùng gặp phải: NCC nước ngoài không có MST VN bị gán nhầm mã "KL").
+      // Nhà cung cấp chưa có MST (thường gặp với NCC nước ngoài) thì để TRỐNG Mã đối tượng, nhưng vẫn
+      // LUÔN điền Tên đối tượng (row[10] bên dưới) bằng đúng tên NCC đã xác nhận.
+      const maDoiTuong = r.confirmedMST || "";
       // Số tiền dùng để ghi sổ: nếu là TK USD và đã lấy được tỷ giá → dùng số VND đã quy đổi; nếu là
       // TK USD nhưng KHÔNG lấy được tỷ giá (lỗi mạng/không có dữ liệu ngày đó) → vẫn giữ số USD gốc
       // và cảnh báo cuối cùng để người dùng tự bổ sung tỷ giá, tránh xuất thiếu dòng.
@@ -1479,6 +1482,7 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
           row[5] = accountNo || "";
           row[6] = bankName || "";
           row[9] = maDoiTuong;
+          row[10] = r.confirmedName || "";
           row[8] = desc;
           row[19] = desc;
           row[20] = p.hach;
@@ -1503,6 +1507,7 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
       row[5] = accountNo || "";
       row[6] = bankName || "";
       row[9] = maDoiTuong;
+      row[10] = r.confirmedName || "";
       row[8] = (r.tx.desc || "").slice(0, 255);
       row[19] = (r.tx.desc || "").slice(0, 255);
       row[20] = hach;
