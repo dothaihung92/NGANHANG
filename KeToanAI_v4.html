@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.95";
+const APP_VERSION = "2026.07.05.96";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -4850,7 +4850,10 @@ function ConfirmScreen({
   // đã phân bổ cho tờ khai nào rồi (allocations) — mỗi lần bấm "↷ Chọn (gối đầu)" sẽ trừ dần phần dư
   // cho tới khi hết (hoặc người dùng đóng bảng, phần dư còn lại coi như bỏ qua không gắn tờ khai).
   const [splitFlow, setSplitFlow] = useState(null);
-  const handlePickSplit = tkId => {
+  // customAmt: người dùng tự gõ số tiền muốn gắn cho tờ khai này (VD tổng 5.000$, muốn gắn đúng
+  // 3.000$ cho lô 1 dù công nợ còn thiếu của lô 1 khác con số đó) — nếu bỏ trống (null/undefined)
+  // thì dùng số đề xuất tự động (= min(số còn dư, công nợ còn thiếu của tờ khai)) như trước.
+  const handlePickSplit = (tkId, customAmt) => {
     const rowId = tokhaiPickForRow;
     const row = rows.find(r => r.id === rowId);
     const tk = tokhaiList.find(t => t.id === tkId);
@@ -4858,7 +4861,9 @@ function ConfirmScreen({
     const inFlow = splitFlow && splitFlow.rowId === rowId;
     const remainingVND = inFlow ? splitFlow.remainingVND : Math.max(row.tx.debit || 0, row.tx.credit || 0);
     const tkBalance = Math.max(0, tkTaxVND(tk) - tkTotalPaidVND(tk));
-    const allocAmt = tkBalance > 0 ? Math.min(remainingVND, tkBalance) : remainingVND;
+    const suggested = tkBalance > 0 ? Math.min(remainingVND, tkBalance) : remainingVND;
+    let allocAmt = (customAmt != null && customAmt !== "") ? Math.max(0, Math.min(parseNum(customAmt, false) || 0, remainingVND)) : suggested;
+    if (!allocAmt) { showToast("Số tiền gắn cho tờ khai phải lớn hơn 0", "warn"); return; }
     const leftover = remainingVND - allocAmt;
     const allocations = [...(inFlow ? splitFlow.allocations : []), { tokhaiId: tkId, amtVND: allocAmt }];
     if (leftover > 1000) {
@@ -5942,7 +5947,12 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     pickForRowDesc: tokhaiPickForRow ? (() => { const pr = rows.find(r => r.id === tokhaiPickForRow); return pr ? pr.tx.desc + " — Tiền ra: " + fmt(pr.tx.debit, pr.tx.currency) : ""; })() : "",
     onPick: tkId => { setSplitFlow(null); attachTokhai(tokhaiPickForRow, tkId); },
     onPickSplit: handlePickSplit,
-    splitRemainingVND: splitFlow && splitFlow.rowId === tokhaiPickForRow ? splitFlow.remainingVND : null,
+    splitRemainingVND: tokhaiPickForRow
+      ? (splitFlow && splitFlow.rowId === tokhaiPickForRow
+        ? splitFlow.remainingVND
+        : (() => { const pr = rows.find(r => r.id === tokhaiPickForRow); return pr ? Math.max(pr.tx.debit || 0, pr.tx.credit || 0) : null; })())
+      : null,
+    splitInProgress: !!(splitFlow && splitFlow.rowId === tokhaiPickForRow),
     onApplyFxDiff: applyFxDiff,
     onExportFxDiff: exportFxDiffForTk,
     showToast
@@ -6020,7 +6030,11 @@ function FxDiffPreviewModal({ rows, onClose, onExport }) {
 
 // ── Bảng quản lý Tờ khai Hải quan NK: xem/sửa tay/nhập từ file tờ khai/xoá, và (khi mở ở chế độ
 // "chọn cho 1 giao dịch") cho chọn 1 tờ khai để gắn thẳng vào GD thanh toán đang xem trên sao kê ──
-function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onPickSplit, splitRemainingVND, onApplyFxDiff, onExportFxDiff, showToast }) {
+function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onPickSplit, splitRemainingVND, splitInProgress, onApplyFxDiff, onExportFxDiff, showToast }) {
+  // Số tiền tự gõ tay cho từng tờ khai khi gối đầu (VD tổng 5.000$ nhưng muốn gắn đúng 3.000$ cho
+  // lô 1 dù công nợ còn thiếu khác con số đó) — key theo tk.id, reset mỗi khi đổi giao dịch đang chọn.
+  const [splitAmt, setSplitAmt] = useState({});
+  React.useEffect(() => { setSplitAmt({}); }, [pickForRowId]);
   const [search, setSearch] = useState("");
   const [importing, setImporting] = useState(false);
   const [selectedTk, setSelectedTk] = useState(new Set());
@@ -6176,12 +6190,12 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
       React.createElement("span", { style: { fontWeight: 700 } }, "Giao dịch đang chọn: "),
       pickForRowDesc
     ),
-    pickForRowId && splitRemainingVND != null && React.createElement("div", {
+    pickForRowId && splitInProgress && splitRemainingVND != null && React.createElement("div", {
       style: { background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#3730a3" }
     },
       React.createElement("span", { style: { fontWeight: 700 } }, "⤵ Đang gối đầu — còn dư: "),
       fmt(splitRemainingVND, "VND"),
-      " — chọn tiếp tờ khai để đặt cọc phần dư này, hoặc bấm \"Đóng\" để bỏ qua phần dư."
+      " — gõ số tiền muốn gắn (hoặc để trống dùng số đề xuất) rồi bấm \"⤵ Gối đầu\" ở tờ khai kế tiếp, hoặc bấm \"Đóng\" để bỏ qua phần dư."
     ),
     React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" } },
       React.createElement("div", { style: { fontWeight: 700, fontSize: 16 } }, "📋 Tờ Khai Hải quan NK"),
@@ -6309,11 +6323,20 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                       title: "Gắn TOÀN BỘ số tiền giao dịch cho đúng tờ khai này",
                       style: { background: "var(--green)", color: "#fff", border: "none", borderRadius: 5, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }
                     }, "✓ Chọn"),
-                    pickForRowId && onPickSplit && React.createElement("button", {
-                      onClick: () => onPickSplit(tk.id),
-                      title: "Thanh toán gối đầu: nếu số tiền giao dịch lớn hơn công nợ còn thiếu của tờ khai này, chỉ lấy đúng phần còn thiếu; phần dư sẽ hỏi chọn tiếp tờ khai khác để đặt cọc",
-                      style: { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", borderRadius: 5, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }
-                    }, "⤵ Gối đầu"),
+                    pickForRowId && onPickSplit && React.createElement(React.Fragment, null,
+                      React.createElement("input", {
+                        value: splitAmt[tk.id] != null ? splitAmt[tk.id] : "",
+                        onChange: e => setSplitAmt(prev => ({ ...prev, [tk.id]: e.target.value })),
+                        placeholder: splitRemainingVND != null ? String(Math.min(splitRemainingVND, Math.max(0, tkTaxVND(tk) - tkTotalPaidVND(tk)) || splitRemainingVND)) : "Số tiền",
+                        title: "Tự gõ số tiền (VND) muốn gắn cho tờ khai này — để trống sẽ dùng số đề xuất tự động",
+                        style: { width: 90, fontSize: 11, border: "1px solid #c7d2fe", borderRadius: 5, padding: "3px 5px" }
+                      }),
+                      React.createElement("button", {
+                        onClick: () => onPickSplit(tk.id, splitAmt[tk.id]),
+                        title: "Thanh toán gối đầu: gắn đúng số tiền tự gõ ở ô bên trái cho tờ khai này (hoặc số đề xuất nếu để trống); phần dư còn lại sẽ hỏi chọn tiếp tờ khai khác để đặt cọc",
+                        style: { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", borderRadius: 5, padding: "4px 10px", fontSize: 11, cursor: "pointer", fontWeight: 600 }
+                      }, "⤵ Gối đầu")
+                    ),
                     React.createElement("button", {
                       onClick: () => removeRow(tk.id),
                       style: { background: "#fff", color: "#dc2626", border: "1px solid #f5c0c0", borderRadius: 5, padding: "4px 8px", fontSize: 11, cursor: "pointer" }
