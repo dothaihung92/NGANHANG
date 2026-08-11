@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.92";
+const APP_VERSION = "2026.07.05.93";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1501,39 +1501,50 @@ async function exportUNC(rows, coName, bankAcct, accountNo, bankName, showToast)
 // Theo đúng mẫu "Chứng từ nghiệp vụ khác" của MISA — dùng cho khoản điều chỉnh KHÔNG phát sinh tiền
 // qua ngân hàng (chỉ là bút toán sổ sách), nên tách khỏi UNC/UNT để không ghi trùng/lệch số tiền chi
 // thực tế. Gom TẤT CẢ giao dịch đã bấm "⚖ Hạch toán chênh lệch" (r.fxSplit) thành 1 file xuất 1 lần.
-function exportFxDiff(rows, coName, bankAcct, accountNo, onlyRowIds) {
+// Chuẩn bị dữ liệu bút toán lãi/lỗ tỷ giá dạng XEM TRƯỚC & SỬA ĐƯỢC (mảng object thường, chưa xuất
+// file) — cho phép người dùng chỉnh tay Diễn giải/TK Nợ/TK Có/Số tiền/Đối tượng Có trước khi xuất,
+// tránh phải sửa lại trong Excel sau khi xuất.
+function buildFxDiffPreview(rows, onlyRowIds) {
+  let fxRows = rows.filter(r => r.confirmed === "yes" && r.fxSplit);
+  if (onlyRowIds && onlyRowIds.size) fxRows = fxRows.filter(r => onlyRowIds.has(r.id));
+  return fxRows.map(r => {
+    const { kind, diff } = r.fxSplit;
+    const hach = r.confirmedHach || "331";
+    // LÃI (trả ít hơn ghi nhận): Nợ 331 (tất toán nốt phần nợ còn lại) / Có 515 (ghi nhận lãi).
+    // LỖ (trả nhiều hơn ghi nhận): Nợ 635 (ghi nhận lỗ) / Có 331 (khép lại phần nợ đã trả dư).
+    const noBen = kind === "gain" ? hach : "635";
+    const coBen = kind === "gain" ? "515" : hach;
+    const desc = `Chênh lệch tỷ giá ${kind === "gain" ? "LÃI" : "LỖ"} - ${r.confirmedName || ""} - ${(r.tx.desc || "").slice(0, 150)}`.slice(0, 255);
+    return {
+      rowId: r.id, ngay: r.tx.date, dienGiai: desc, tkNo: noBen, tkCo: coBen, soTien: diff,
+      // Đối tượng Có = tên nhà cung cấp tương ứng (r.confirmedName đã được điền sẵn từ tk.nhaCungCap
+      // lúc gắn Tờ khai NK) — theo đúng yêu cầu, không phải MST.
+      doiTuongCo: r.confirmedName || ""
+    };
+  });
+}
+// Xuất file Excel THẬT từ dữ liệu đã xem trước/sửa tay (previewRows) — đúng theo mẫu "Chứng từ
+// nghiệp vụ khác" của MISA. Cột "Số tiền quy đổi" để trống theo yêu cầu (không tự điền trùng "Số
+// tiền" như trước).
+function exportFxDiffFromPreview(previewRows, coName, bankAcct, accountNo) {
   try {
-    let fxRows = rows.filter(r => r.confirmed === "yes" && r.fxSplit);
-    // Chỉ xuất đúng các tờ khai NGƯỜI DÙNG ĐÃ TICK CHỌN trong bảng Tờ Khai NK (onlyRowIds) — nếu
-    // không truyền gì (gọi từ nút chung ở màn hình chính) thì vẫn xuất TẤT CẢ như trước.
-    if (onlyRowIds && onlyRowIds.size) fxRows = fxRows.filter(r => onlyRowIds.has(r.id));
-    if (!fxRows.length) { alert("Không có giao dịch nào đã hạch toán chênh lệch tỷ giá để xuất."); return; }
+    if (!previewRows.length) { alert("Không có dòng nào để xuất."); return; }
     const header = ["Hiển thị trên sổ", "Ngày chứng từ (*)", "Ngày hạch toán (*)", "Số chứng từ (*)", "Diễn giải", "Hạn thanh toán", "Loại tiền", "Tỷ giá", "Diễn giải (Hạch toán)", "TK Nợ (*)", "TK Có (*)", "Số tiền", "Số tiền quy đổi", "Đối tượng Nợ", "Đối tượng Có", "TK ngân hàng", "Khoản mục CP", "Đơn vị", "Đối tượng THCP", "Công trình", "Hợp đồng bán", "CP không hợp lý", "Mã thống kê", "Diễn giải (Thuế)", "TK thuế GTGT", "Tiền thuế GTGT", "% thuế GTGT", "Tỷ lệ tính thuế (Thuế suất KHAC)", "Giá trị HHDV chưa thuế", "Mẫu số HĐ", "Ngày hóa đơn", "Ký hiệu HĐ", "Số hóa đơn", "Nhóm HHDV mua vào", "Mã đối tượng thuế", "Tên đối tượng thuế", "Mã số thuế đối tượng thuế"];
     const data = [header];
-    fxRows.forEach((r, i) => {
-      const origIdx = rows.indexOf(r);
-      const seq = (origIdx >= 0 ? origIdx : i) + 1;
-      const { kind, diff } = r.fxSplit;
-      const hach = r.confirmedHach || "331";
-      // LÃI (trả ít hơn ghi nhận): Nợ 331 (tất toán nốt phần nợ còn lại) / Có 515 (ghi nhận lãi).
-      // LỖ (trả nhiều hơn ghi nhận): Nợ 635 (ghi nhận lỗ) / Có 331 (khép lại phần nợ đã trả dư).
-      const noBen = kind === "gain" ? hach : "635";
-      const coBen = kind === "gain" ? "515" : hach;
-      const desc = `Chênh lệch tỷ giá ${kind === "gain" ? "LÃI" : "LỖ"} - ${r.confirmedName || ""} - ${(r.tx.desc || "").slice(0, 150)}`.slice(0, 255);
+    previewRows.forEach((p, i) => {
       const row = new Array(header.length).fill("");
       row[0] = "0";
-      row[1] = r.tx.date;
-      row[2] = r.tx.date;
-      row[3] = buildVoucherNo("PKT", r.tx.date, seq, bankAcct, accountNo);
-      row[4] = desc;
+      row[1] = p.ngay;
+      row[2] = p.ngay;
+      row[3] = buildVoucherNo("PKT", p.ngay, i + 1, bankAcct, accountNo);
+      row[4] = p.dienGiai;
       row[6] = "VND";
-      row[8] = desc;
-      row[9] = noBen;
-      row[10] = coBen;
-      row[11] = diff;
-      row[12] = diff;
-      if (r.confirmedMST && noBen === hach) row[13] = r.confirmedMST;
-      if (r.confirmedMST && coBen === hach) row[14] = r.confirmedMST;
+      row[8] = p.dienGiai;
+      row[9] = p.tkNo;
+      row[10] = p.tkCo;
+      row[11] = parseNum(p.soTien, false);
+      // Cột 12 "Số tiền quy đổi" CỐ Ý ĐỂ TRỐNG theo yêu cầu.
+      row[14] = p.doiTuongCo || "";
       data.push(row);
     });
     const ws = XLSX.utils.aoa_to_sheet(data);
@@ -3777,6 +3788,9 @@ function ConfirmScreen({
   const [tokhaiPickForRow, setTokhaiPickForRow] = useState(null); // rowId khi mở bảng ở chế độ "chọn"
   React.useEffect(() => { setTokhaiList(getCoToKhai(co.id)); }, [co.id]);
   const saveTokhaiList = list => { setTokhaiList(list); saveCoToKhai(co.id, list); };
+  // Màn "xem trước & sửa tay" trước khi thật sự xuất file lãi/lỗ tỷ giá.
+  const [fxPreviewOpen, setFxPreviewOpen] = useState(false);
+  const [fxPreviewRows, setFxPreviewRows] = useState([]);
 
   const undoStack=React.useRef([]),redoStack=React.useRef([]);
   const currentTabIdRef = React.useRef(activeTabAccId);
@@ -4815,21 +4829,35 @@ function ConfirmScreen({
     }));
     showToast("✓ Đã hạch toán chênh lệch tỷ giá " + (kind === "gain" ? "LÃI (515)" : "LỖ (635)") + ": " + fmt(Math.abs(diff), "VND"));
   };
-  // Xuất lãi/lỗ tỷ giá CHỈ CHO CÁC TỜ KHAI ĐÃ TICK CHỌN trong bảng Tờ Khai NK — quy các tk.id đã
-  // chọn về đúng ID dòng giao dịch ngân hàng đang mang r.fxSplit (dòng thanh toán cuối/đóng nợ) rồi
-  // mới gọi exportFxDiff với đúng danh sách đó, tránh xuất nhầm cả những tờ khai chưa chọn.
+  // Xuất lãi/lỗ tỷ giá CHỈ CHO CÁC TỜ KHAI ĐÃ TICK CHỌN trong bảng Tờ Khai NK. Trước đây chỉ xuất
+  // đúng những dòng ĐÃ BẤM "⚖ HT Lãi/Lỗ" riêng lẻ trước đó — nên chọn nhiều tờ khai nhưng chưa kịp
+  // bấm tay từng dòng thì xuất ra thiếu (VD chọn 10 tờ khai nhưng chỉ có 2 dòng đã bấm nút → chỉ ra
+  // 2 dòng, đúng lỗi người dùng gặp phải). Giờ tự động ÁP DỤNG hạch toán cho MỌI tờ khai đã chọn mà
+  // còn thiếu (chưa bấm), rồi hiện màn XEM TRƯỚC cho sửa tay trước khi thật sự xuất file.
   const exportFxDiffForTk = tkIds => {
+    let workingRows = rows;
     const rowIds = new Set();
     tkIds.forEach(tkId => {
       const tk = tokhaiList.find(t => t.id === tkId);
       if (!tk) return;
-      tkPayments(tk).forEach(p => rowIds.add(p.rowId));
+      const payments = tkPayments(tk);
+      if (!payments.length) return;
+      const lastRowId = payments[payments.length - 1].rowId;
+      const lastRow = workingRows.find(r => r.id === lastRowId);
+      if (lastRow && !lastRow.fxSplit) {
+        const diff = tkTotalPaidVND(tk) - tkTaxVND(tk);
+        if (diff) {
+          const kind = diff < 0 ? "gain" : "loss";
+          workingRows = workingRows.map(r => r.id === lastRowId ? { ...r, fxSplit: { kind, diff: Math.abs(diff) } } : r);
+        }
+      }
+      payments.forEach(p => rowIds.add(p.rowId));
     });
-    if (!rowIds.size) { showToast("Chưa có tờ khai nào được chọn có giao dịch để xuất", "warn"); return; }
-    exportFxDiff(rows, co && co.name || "export",
-      (activeTabAcc && activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc && activeTabAcc.label, activeTabAcc && activeTabAcc.currency, []),
-      (activeTabAcc && activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc && activeTabAcc.label),
-      rowIds);
+    if (workingRows !== rows) setRowsH(() => workingRows);
+    const preview = buildFxDiffPreview(workingRows, rowIds);
+    if (!preview.length) { showToast("Không có chênh lệch nào để hạch toán trong các tờ khai đã chọn", "warn"); return; }
+    setFxPreviewRows(preview);
+    setFxPreviewOpen(true);
   };
   // Nhập nhiều file tờ khai cùng lúc — nếu số tờ khai đã có sẵn trong danh sách (trùng số) thì bỏ
   // qua, không thêm lại lần nữa, để tránh nhân đôi khi người dùng lỡ chọn lại file cũ.
@@ -5395,13 +5423,7 @@ function ConfirmScreen({
     onClick:()=>exportUNC(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []),
       (activeTabAcc&&activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc&&activeTabAcc.label),
       (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast)
-  }, "\uD83D\uDCE5 Xu\u1EA5t UNC"),/*#__PURE__*/React.createElement("button",{
-    className:"btn btn-outline",
-    title:"Xuất bút toán hạch toán lãi/lỗ chênh lệch tỷ giá (đã bấm ⚖ Hạch toán chênh lệch) theo mẫu Chứng từ nghiệp vụ khác MISA",
-    style: { borderColor: "#7c3aed", color: "#7c3aed" },
-    onClick:()=>exportFxDiff(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []),
-      (activeTabAcc&&activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc&&activeTabAcc.label))
-  }, "⚖ Xuất lãi/lỗ tỷ giá"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCE5 Xu\u1EA5t UNC"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-green",
     onClick: handleSaveAndLearn
   }, "\u2713 L\u01B0u & h\u1ECDc"))), addMode && /*#__PURE__*/React.createElement("div", {
@@ -5861,7 +5883,75 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     onApplyFxDiff: applyFxDiff,
     onExportFxDiff: exportFxDiffForTk,
     showToast
+  }), fxPreviewOpen && /*#__PURE__*/React.createElement(FxDiffPreviewModal, {
+    rows: fxPreviewRows,
+    onClose: () => setFxPreviewOpen(false),
+    onExport: editedRows => {
+      exportFxDiffFromPreview(editedRows, co && co.name || "export",
+        (activeTabAcc && activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc && activeTabAcc.label, activeTabAcc && activeTabAcc.currency, []),
+        (activeTabAcc && activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc && activeTabAcc.label));
+      setFxPreviewOpen(false);
+    }
   }));
+}
+
+// ── Xem trước & SỬA TAY bút toán lãi/lỗ tỷ giá trước khi thật sự xuất file Excel ────────────────
+// Cho sửa Ngày/Diễn giải/TK Nợ/TK Có/Số tiền/Đối tượng Có của TỪNG dòng — vì đây là bút toán ảnh
+// hưởng báo cáo tài chính, không nên buộc phải đúng 100% tự động mà không có cách chỉnh lại.
+function FxDiffPreviewModal({ rows, onClose, onExport }) {
+  const [data, setData] = useState(rows);
+  React.useEffect(() => {
+    const h = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onClose]);
+  const upd = (i, field, val) => setData(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: val } : r));
+  const removeAt = i => setData(prev => prev.filter((_, idx) => idx !== i));
+  const inputStyle = { width: "100%", border: "1px solid var(--border)", borderRadius: 4, padding: "4px 6px", fontSize: 12, boxSizing: "border-box" };
+  const th = label => React.createElement("th", { style: { padding: "6px 8px", textAlign: "left", fontSize: 11, color: "var(--text2)", borderBottom: "2px solid var(--border)" } }, label);
+  const total = data.reduce((s, r) => s + (parseNum(r.soTien, false) || 0), 0);
+  return React.createElement("div", {
+    style: { position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 320, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 },
+    onClick: onClose
+  }, React.createElement("div", {
+    style: { background: "#fff", borderRadius: 12, width: "96vw", maxWidth: 1300, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 8px 40px rgba(0,0,0,.3)" },
+    onClick: e => e.stopPropagation()
+  },
+    React.createElement("div", { style: { padding: "14px 18px", borderBottom: "1px solid var(--border)" } },
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 16 } }, "⚖ Xem trước & sửa bút toán lãi/lỗ tỷ giá"),
+      React.createElement("div", { style: { fontSize: 12, color: "var(--text2)", marginTop: 2 } }, "Kiểm tra/sửa lại trước khi xuất — sửa trực tiếp trong bảng, xoá dòng không muốn xuất bằng nút Xoá.")
+    ),
+    React.createElement("div", { style: { overflow: "auto", flex: 1, padding: "0 4px" } },
+      React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
+        React.createElement("thead", null, React.createElement("tr", null,
+          th("Ngày"), th("Diễn giải"), th("TK Nợ"), th("TK Có"), th("Số tiền"), th("Đối tượng Có"), th("")
+        )),
+        React.createElement("tbody", null, data.map((r, i) => React.createElement("tr", { key: r.rowId || i },
+          React.createElement("td", { style: { padding: "3px 6px", width: 100 } }, React.createElement("input", { style: inputStyle, value: r.ngay || "", onChange: e => upd(i, "ngay", e.target.value) })),
+          React.createElement("td", { style: { padding: "3px 6px", minWidth: 320 } }, React.createElement("input", { style: inputStyle, value: r.dienGiai || "", onChange: e => upd(i, "dienGiai", e.target.value) })),
+          React.createElement("td", { style: { padding: "3px 6px", width: 80 } }, React.createElement("input", { style: inputStyle, value: r.tkNo || "", onChange: e => upd(i, "tkNo", e.target.value) })),
+          React.createElement("td", { style: { padding: "3px 6px", width: 80 } }, React.createElement("input", { style: inputStyle, value: r.tkCo || "", onChange: e => upd(i, "tkCo", e.target.value) })),
+          React.createElement("td", { style: { padding: "3px 6px", width: 130 } }, React.createElement("input", { style: inputStyle, value: r.soTien || "", onChange: e => upd(i, "soTien", e.target.value) })),
+          React.createElement("td", { style: { padding: "3px 6px", width: 200 } }, React.createElement("input", { style: inputStyle, value: r.doiTuongCo || "", onChange: e => upd(i, "doiTuongCo", e.target.value) })),
+          React.createElement("td", { style: { padding: "3px 6px" } }, React.createElement("button", {
+            onClick: () => removeAt(i),
+            style: { background: "#fff", color: "#dc2626", border: "1px solid #f5c0c0", borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer" }
+          }, "Xoá"))
+        )))
+      )
+    ),
+    React.createElement("div", { style: { padding: "12px 18px", borderTop: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "center" } },
+      React.createElement("div", { style: { fontSize: 13, fontWeight: 600 } }, data.length + " dòng — Tổng: " + fmt(total, "VND")),
+      React.createElement("div", { style: { display: "flex", gap: 8 } },
+        React.createElement("button", { onClick: onClose, style: { height: 34, padding: "0 14px", borderRadius: 6, border: "1px solid var(--border)", background: "#fff", cursor: "pointer", fontSize: 13 } }, "Huỷ"),
+        React.createElement("button", {
+          onClick: () => onExport(data),
+          disabled: !data.length,
+          style: { height: 34, padding: "0 18px", borderRadius: 6, border: "none", background: data.length ? "#7c3aed" : "#ccc", color: "#fff", fontWeight: 700, cursor: data.length ? "pointer" : "not-allowed", fontSize: 13 }
+        }, "✓ Xuất Excel")
+      )
+    )
+  ));
 }
 
 // ── Bảng quản lý Tờ khai Hải quan NK: xem/sửa tay/nhập từ file tờ khai/xoá, và (khi mở ở chế độ
