@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.98";
+const APP_VERSION = "2026.07.05.99";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -89,6 +89,12 @@ const LS = {
   },
   set: (k, v) => {
     try {
+      // Tự đóng dấu thời điểm lưu (_savedAt) cho MỌI phiên làm việc (session_...) — không cần sửa
+      // từng chỗ gọi LS.set rải rác khắp file, chỉ cần chặn ở đây 1 chỗ duy nhất. Dùng để biết công
+      // ty nào vừa xử lý gần đây nhất (sắp xếp "Tiếp tục" lên đầu danh sách công ty).
+      if (k.indexOf("session_") === 0 && v && typeof v === "object" && !Array.isArray(v)) {
+        v = { ...v, _savedAt: Date.now() };
+      }
       localStorage.setItem(k, JSON.stringify(v));
       try { if (window.__FS && window.__FS.handle) window.__FS.schedule(); } catch(e) {}
       return true;
@@ -2341,16 +2347,24 @@ function HomeScreen({
     setShowAdd(false);
   };
   // Công ty đang làm dở (còn "Dữ liệu chưa hoàn thành" / nút "Tiếp tục") luôn hiện lên ĐẦU DANH SÁCH
-  // trước, bất kể đang sắp theo tiêu chí nào (tên/mới/số từ khoá) — tiêu chí sắp xếp chỉ áp dụng
-  // NHƯ THỨ TỰ PHỤ trong từng nhóm (đang làm dở trước, còn lại sau).
+  // trước, bất kể đang sắp theo tiêu chí nào (tên/mới/số từ khoá) — và NGAY TRONG nhóm đang làm dở
+  // đó, công ty nào có phiên vừa lưu GẦN ĐÂY NHẤT (_savedAt, tự đóng dấu ở LS.set) đứng trước tiên,
+  // đúng ý "công ty đang xử lý gần nhất hiện đầu tiên". Công ty không có dữ liệu dở thì vẫn theo
+  // tiêu chí sắp xếp đã chọn (tên/mới/số từ khoá) như cũ.
+  const lastActivityOf = co => {
+    const sessions = getCoSessions(co);
+    if (!sessions.length) return -1;
+    return Math.max(...sessions.map(s => (s.session && s.session._savedAt) || 0));
+  };
   const filtered = companies.filter(co => {
     const q = search.toLowerCase().trim();
     if (!q) return true;
     return co.name.toLowerCase().includes(q) || (co.mst || "").includes(q) || (co.note || "").toLowerCase().includes(q);
   }).sort((a, b) => {
-    const aWip = getCoSessions(a).length > 0 ? 1 : 0;
-    const bWip = getCoSessions(b).length > 0 ? 1 : 0;
+    const aAct = lastActivityOf(a), bAct = lastActivityOf(b);
+    const aWip = aAct >= 0 ? 1 : 0, bWip = bAct >= 0 ? 1 : 0;
     if (aWip !== bWip) return bWip - aWip;
+    if (aWip && bWip && aAct !== bAct) return bAct - aAct;
     if (sortBy === "name") return a.name.localeCompare(b.name, "vi");
     if (sortBy === "recent") return b.created.localeCompare(a.created);
     if (sortBy === "kwcount") return (LS.get("dict_" + b.id) || []).length - (LS.get("dict_" + a.id) || []).length;
