@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.05.93";
+const APP_VERSION = "2026.07.05.94";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -1515,11 +1515,13 @@ function buildFxDiffPreview(rows, onlyRowIds) {
     const noBen = kind === "gain" ? hach : "635";
     const coBen = kind === "gain" ? "515" : hach;
     const desc = `Chênh lệch tỷ giá ${kind === "gain" ? "LÃI" : "LỖ"} - ${r.confirmedName || ""} - ${(r.tx.desc || "").slice(0, 150)}`.slice(0, 255);
+    // Tên nhà cung cấp (r.confirmedName, điền sẵn từ tk.nhaCungCap lúc gắn Tờ khai NK) phải đi
+    // theo ĐÚNG bên chứa tài khoản công nợ (hach, thường là 331): bên nào có "hach" thì điền
+    // Đối tượng bên đó (Nợ hoặc Có), bên kia để trống.
     return {
       rowId: r.id, ngay: r.tx.date, dienGiai: desc, tkNo: noBen, tkCo: coBen, soTien: diff,
-      // Đối tượng Có = tên nhà cung cấp tương ứng (r.confirmedName đã được điền sẵn từ tk.nhaCungCap
-      // lúc gắn Tờ khai NK) — theo đúng yêu cầu, không phải MST.
-      doiTuongCo: r.confirmedName || ""
+      doiTuongNo: noBen === hach ? (r.confirmedName || "") : "",
+      doiTuongCo: coBen === hach ? (r.confirmedName || "") : ""
     };
   });
 }
@@ -1544,6 +1546,7 @@ function exportFxDiffFromPreview(previewRows, coName, bankAcct, accountNo) {
       row[10] = p.tkCo;
       row[11] = parseNum(p.soTien, false);
       // Cột 12 "Số tiền quy đổi" CỐ Ý ĐỂ TRỐNG theo yêu cầu.
+      row[13] = p.doiTuongNo || "";
       row[14] = p.doiTuongCo || "";
       data.push(row);
     });
@@ -5924,7 +5927,7 @@ function FxDiffPreviewModal({ rows, onClose, onExport }) {
     React.createElement("div", { style: { overflow: "auto", flex: 1, padding: "0 4px" } },
       React.createElement("table", { style: { width: "100%", borderCollapse: "collapse" } },
         React.createElement("thead", null, React.createElement("tr", null,
-          th("Ngày"), th("Diễn giải"), th("TK Nợ"), th("TK Có"), th("Số tiền"), th("Đối tượng Có"), th("")
+          th("Ngày"), th("Diễn giải"), th("TK Nợ"), th("TK Có"), th("Số tiền"), th("Đối tượng Nợ"), th("Đối tượng Có"), th("")
         )),
         React.createElement("tbody", null, data.map((r, i) => React.createElement("tr", { key: r.rowId || i },
           React.createElement("td", { style: { padding: "3px 6px", width: 100 } }, React.createElement("input", { style: inputStyle, value: r.ngay || "", onChange: e => upd(i, "ngay", e.target.value) })),
@@ -5932,6 +5935,7 @@ function FxDiffPreviewModal({ rows, onClose, onExport }) {
           React.createElement("td", { style: { padding: "3px 6px", width: 80 } }, React.createElement("input", { style: inputStyle, value: r.tkNo || "", onChange: e => upd(i, "tkNo", e.target.value) })),
           React.createElement("td", { style: { padding: "3px 6px", width: 80 } }, React.createElement("input", { style: inputStyle, value: r.tkCo || "", onChange: e => upd(i, "tkCo", e.target.value) })),
           React.createElement("td", { style: { padding: "3px 6px", width: 130 } }, React.createElement("input", { style: inputStyle, value: r.soTien || "", onChange: e => upd(i, "soTien", e.target.value) })),
+          React.createElement("td", { style: { padding: "3px 6px", width: 200 } }, React.createElement("input", { style: inputStyle, value: r.doiTuongNo || "", onChange: e => upd(i, "doiTuongNo", e.target.value) })),
           React.createElement("td", { style: { padding: "3px 6px", width: 200 } }, React.createElement("input", { style: inputStyle, value: r.doiTuongCo || "", onChange: e => upd(i, "doiTuongCo", e.target.value) })),
           React.createElement("td", { style: { padding: "3px 6px" } }, React.createElement("button", {
             onClick: () => removeAt(i),
