@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.06.05";
+const APP_VERSION = "2026.07.06.06";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -5822,7 +5822,19 @@ function ConfirmScreen({
       borderRadius: 3,
       padding: "0 4px"
     }
-  }, "Esc"), " Ra ngo\xE0i \xA0", /*#__PURE__*/React.createElement("kbd",{style:{background:"#fff",border:"1px solid #ddd",borderRadius:3,padding:"0 4px"}},"Alt+T"), " Ti\u1EC1n M\u1EB7t"), /*#__PURE__*/React.createElement("label", {
+  }, "Esc"), " Ra ngo\xE0i \xA0", /*#__PURE__*/React.createElement("kbd",{style:{background:"#fff",border:"1px solid #ddd",borderRadius:3,padding:"0 4px"}},"Alt+T"), " Ti\u1EC1n M\u1EB7t"),
+  // T\u1ED5ng ti\u1EC1n v\u00E0o/ti\u1EC1n ra c\u1EE7a \u0110\u00DANG danh s\u00E1ch \u0111ang l\u1ECDc hi\u1EC7n t\u1EA1i (theo tab + \u00F4 t\u00ECm ki\u1EBFm/b\u1ED9 l\u1ECDc \u0111ang
+  // \u00E1p d\u1EE5ng) \u2014 gi\u00FAp \u0111\u1ED1i chi\u1EBFu nhanh v\u1EDBi s\u1ED1 li\u1EC7u ng\u00E2n h\u00E0ng m\u00E0 kh\u00F4ng c\u1EA7n c\u1ED9ng tay.
+  /*#__PURE__*/React.createElement("span", {
+    style: { display: "flex", alignItems: "center", gap: 10, marginLeft: 12, fontWeight: 600 }
+  },
+    /*#__PURE__*/React.createElement("span", { style: { color: "var(--green-d)" } },
+      "\u2191 V\xE0o: ", fmt(filtered.reduce((s, r) => s + (r.tx.credit || 0), 0), activeTabAcc ? activeTabAcc.currency : "VND")
+    ),
+    /*#__PURE__*/React.createElement("span", { style: { color: "#dc2626" } },
+      "\u2193 Ra: ", fmt(filtered.reduce((s, r) => s + (r.tx.debit || 0), 0), activeTabAcc ? activeTabAcc.currency : "VND")
+    )
+  ), /*#__PURE__*/React.createElement("label", {
     style: {
       marginLeft: "auto",
       display: "flex",
