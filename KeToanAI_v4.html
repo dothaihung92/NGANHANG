@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.06.07";
+const APP_VERSION = "2026.07.06.08";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -213,13 +213,14 @@ function getCoInvoices(coId) {
   return v || { invDV: [], invDR: [] };
 }
 
-// Danh sách Tờ khai Hải quan NK dùng chung cho cả công ty (không theo từng tài khoản NH) — dùng để
-// gợi ý/gắn vào giao dịch thanh toán ngoại tệ khi đối chiếu sao kê.
-function saveCoToKhai(coId, list) {
-  try { LS.set("tokhai_" + coId, list || []); } catch (e) {}
+// Danh sách Tờ khai Hải quan (NK hoặc XK) dùng chung cho cả công ty (không theo từng tài khoản NH)
+// — dùng để gợi ý/gắn vào giao dịch thanh toán ngoại tệ khi đối chiếu sao kê. NK và XK lưu ở 2 key
+// riêng (tokhai_ vs tokhaixk_) để không lẫn lộn dữ liệu.
+function saveCoToKhai(coId, list, kind) {
+  try { LS.set((kind === "XK" ? "tokhaixk_" : "tokhai_") + coId, list || []); } catch (e) {}
 }
-function getCoToKhai(coId) {
-  return LS.get("tokhai_" + coId) || [];
+function getCoToKhai(coId, kind) {
+  return LS.get((kind === "XK" ? "tokhaixk_" : "tokhai_") + coId) || [];
 }
 
 // Ước lượng dung lượng localStorage đang dùng (KB)
@@ -557,7 +558,12 @@ function tkLabelValue(rows, label, nth) {
   return vals[nth || 0] !== undefined ? vals[nth || 0] : null;
 }
 const TK_CURRENCIES = ["USD", "EUR", "CNY", "JPY", "GBP", "KRW", "HKD", "SGD", "THB", "AUD", "CAD", "VND"];
-function parseToKhaiSheet(rows) {
+// kind: "NK" (Tờ khai NHẬP KHẨU, mặc định) hoặc "XK" (Tờ khai XUẤT KHẨU). Hai loại tờ khai dùng
+// CHUNG 1 mẫu VNACCS (cùng nhãn, cùng bố cục xen kẽ nhãn/giá trị) — chỉ khác nhau ở việc đối tác
+// (nhà cung cấp/khách hàng nước ngoài) nằm ở phần "Người xuất khẩu" (khi mình là bên NK, đối tác
+// là bên bán) hay phần "Người nhập khẩu" (khi mình là bên XK, đối tác là bên mua). Tờ khai XK
+// KHÔNG cần đọc Thuế NK/Thuế GTGT NK (chỉ áp dụng hàng nhập khẩu).
+function parseToKhaiSheet(rows, kind) {
   const toKhaiSo = tkLabelValue(rows, "Số tờ khai", 0);
   if (!toKhaiSo) return null; // không tìm thấy nhãn cốt lõi → chắc chắn không phải file tờ khai hợp lệ
   const ngayDangKyRaw = String(tkLabelValue(rows, "Ngày đăng ký", 0) || "");
@@ -577,13 +583,15 @@ function parseToKhaiSheet(rows) {
     const nonEmpty = rows[tgttIdx].filter(c => c !== null && c !== undefined && String(c).trim() !== "");
     tyGiaTinhThue = parseNum(nonEmpty[nonEmpty.length - 1], false);
   }
-  // Người xuất khẩu (nhà cung cấp nước ngoài) — tìm đúng nhãn "Tên" xuất hiện SAU nhãn "Người xuất
-  // khẩu", không lấy nhầm "Tên" của "Người nhập khẩu" (chính công ty mình) nằm phía trên.
-  const nxkIdx = tkFindLabelRow(rows, "Người xuất khẩu", 0);
-  const tenIdx = nxkIdx >= 0 ? tkFindLabelRow(rows, "Tên", nxkIdx + 1) : -1;
+  // Tờ NK: đối tác (nhà cung cấp nước ngoài) nằm ở phần "Người xuất khẩu". Tờ XK: đối tác (khách
+  // hàng nước ngoài) nằm ở phần "Người nhập khẩu" — tìm đúng nhãn "Tên" xuất hiện SAU nhãn cha
+  // tương ứng, không lấy nhầm "Tên" của phía CÒN LẠI (chính công ty mình).
+  const parentLabel = kind === "XK" ? "Người nhập khẩu" : "Người xuất khẩu";
+  const parentIdx = tkFindLabelRow(rows, parentLabel, 0);
+  const tenIdx = parentIdx >= 0 ? tkFindLabelRow(rows, "Tên", parentIdx + 1) : -1;
   const nhaCungCap = tenIdx >= 0 ? (tkValuesAfterLabel(rows[tenIdx], "Tên")[0] || "") : "";
   const ghiChu = String(tkLabelValue(rows, "Phần ghi chú", 0) || "");
-  const { thueNK, thueGTGT } = tkTaxSummary(rows);
+  const { thueNK, thueGTGT } = kind === "XK" ? { thueNK: 0, thueGTGT: 0 } : tkTaxSummary(rows);
   return {
     id: uid(), toKhaiSo: String(toKhaiSo), ngayToKhai, nhaCungCap: String(nhaCungCap).trim(),
     soHoaDon: String(soHoaDon).trim(), ngayHoaDon: (ngayHoaDon.match(/\d{1,2}\/\d{1,2}\/\d{4}/) || [""])[0],
@@ -638,10 +646,34 @@ function tkPayments(tk) {
 function tkTotalPaidVND(tk) {
   return tkPayments(tk).reduce((s, p) => s + (p.bankVND || 0), 0);
 }
-function parseToKhaiWorkbook(wb) {
-  const sheetName = wb.SheetNames.find(n => n.toUpperCase() === "TKN") || wb.SheetNames[0];
+// So khớp gợi ý Tờ khai Hải quan (NK/XK) với nội dung giao dịch — chỉ giữ chữ/số, bỏ khoảng
+// trắng/dấu câu để so khớp không phân biệt định dạng gõ khác nhau.
+function tkCore(s) { return String(s || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase(); }
+// Nội dung sao kê thường ghi kèm số tiền ngoại tệ đã thanh toán (VD "USD 7,447.50" hay
+// "7477.50USD") — dò lấy ra để so khớp gợi ý và điền sẵn cột "Trị giá TT (NT)".
+function extractForeignAmt(desc, currency) {
+  // "currency" (ô "NT") là ô người dùng tự gõ tay trong bảng Tờ Khai NK/XK — nếu gõ ký tự đặc biệt
+  // (VD dấu ngoặc, dấu +) sẽ làm hỏng biểu thức chính quy (RegExp) và có thể làm sập trang — phải
+  // escape ký tự đặc biệt VÀ bọc try/catch để không bao giờ crash cả ứng dụng chỉ vì 1 ô nhập
+  // liệu currency bị gõ sai.
+  try {
+    const cur = (currency || "USD").toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    if (!cur) return 0;
+    const re = new RegExp("(?:" + cur + "\\s*([\\d.,]+)|([\\d.,]+)\\s*\\*?\\s*" + cur + ")", "i");
+    const m = String(desc || "").match(re);
+    if (!m) return 0;
+    return parseNum(m[1] || m[2] || "", true);
+  } catch (e) {
+    return 0;
+  }
+}
+function parseToKhaiWorkbook(wb, kind) {
+  // File tờ khai NK thường có sheet tên "TKN"; tờ khai XK theo cùng quy ước hải quan là "TKX" —
+  // nếu không tìm thấy đúng tên sheet (một số file export ra tên khác) thì lấy sheet đầu tiên.
+  const wantName = kind === "XK" ? "TKX" : "TKN";
+  const sheetName = wb.SheetNames.find(n => n.toUpperCase() === wantName) || wb.SheetNames[0];
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: "" });
-  return parseToKhaiSheet(rows);
+  return parseToKhaiSheet(rows, kind);
 }
 
 function parseNum(s, usd) {
@@ -1306,7 +1338,7 @@ async function convertUsdRowsToVnd(usdRows) {
   return { vndOf, failed };
 }
 
-async function exportUNT(rows, coName, bankAcct, accountNo, bankName, showToast) {
+async function exportUNT(rows, coName, bankAcct, accountNo, bankName, showToast, tokhaiList) {
   try {
     // Dòng bên kia của 1 giao dịch chuyển khoản nội bộ (hạch toán = "X") chỉ là placeholder tự động
     // đánh dấu — bên đã bấm xác nhận nội bộ đã hạch toán đủ cả 2 vế bằng mã TK thật rồi, đưa dòng "X"
@@ -1339,10 +1371,14 @@ async function exportUNT(rows, coName, bankAcct, accountNo, bankName, showToast)
       const origIdx = rows.indexOf(r);
       const seq = (origIdx >= 0 ? origIdx : i) + 1;
       const hach = r.confirmedHach || "131";
-      // Luôn điền Mã đối tượng nếu GD đã có MST xác nhận, bất kể hạch toán là gì (VD hoàn tiền cọc
-      // hạch toán N131/Có 1121 vẫn là "tiền ra" nhưng đối tượng vẫn là công ty đó) — chỉ dùng "KL"
-      // (khách lẻ) làm mặc định khi hạch toán 131/331 mà chưa có MST.
-      const maDoiTuong = r.confirmedMST || (hach === "131" ? "KL" : "");
+      // Khách hàng gắn từ Tờ Khai XK chưa có MST (thường gặp với khách nước ngoài) → lấy ĐÚNG
+      // NGUYÊN VĂN tên đang gõ trong ô "Nhà cung cấp/Khách hàng" của tờ khai đã gắn tại THỜI ĐIỂM
+      // XUẤT (không dùng bản chụp cũ r.confirmedName lúc gắn). Chỉ dùng "KL" (mã hệ thống MISA cố
+      // định = "Khách lẻ không lấy hoá đơn") làm mặc định khi THẬT SỰ không có tên nào khác — không
+      // dùng cho giao dịch chuyển khoản nội bộ (r.isInternal).
+      const linkedTk = r.confirmedToKhaiId ? (tokhaiList || []).find(t => t.id === r.confirmedToKhaiId) : null;
+      const objectName = r.isInternal ? "" : ((linkedTk && linkedTk.nhaCungCap) || r.confirmedName || "");
+      const maDoiTuong = r.confirmedMST || objectName || (hach === "131" && !r.isInternal ? "KL" : "");
       // Số tiền dùng để ghi sổ: nếu là TK USD và đã lấy được tỷ giá → dùng số VND đã quy đổi; nếu là
       // TK USD nhưng KHÔNG lấy được tỷ giá (lỗi mạng/không có dữ liệu ngày đó) → vẫn giữ số USD gốc
       // và cảnh báo cuối cùng để người dùng tự bổ sung tỷ giá, tránh xuất thiếu dòng.
@@ -1369,6 +1405,7 @@ async function exportUNT(rows, coName, bankAcct, accountNo, bankName, showToast)
           row[2] = r.tx.date;
           row[3] = buildVoucherNo("UNT", r.tx.date, `${seq}.${idx+1}`, bankAcct, accountNo);
           row[4] = maDoiTuong;
+          row[5] = objectName;
           row[7] = accountNo || "";
           row[8] = bankName || "";
           row[10] = desc;
@@ -1387,6 +1424,7 @@ async function exportUNT(rows, coName, bankAcct, accountNo, bankName, showToast)
       row[2] = r.tx.date;
       row[3] = buildVoucherNo("UNT", r.tx.date, seq, bankAcct, accountNo);
       row[4] = maDoiTuong;
+      row[5] = objectName;
       row[7] = accountNo || "";
       row[8] = bankName || "";
       row[10] = (r.tx.desc || "").slice(0, 255);
@@ -2013,8 +2051,9 @@ function App() {
     LS.del("inputdata_" + co.id);
     LS.del("inv_" + co.id);
     LS.del("sesidx_" + co.id);
-    // GIỮ NGUYÊN: dict_<coId> (từ điển), companies (tài khoản sao kê), tokhai_<coId> (Tờ Khai NK) —
-    // dữ liệu tờ khai nhập độc lập với sao kê ngân hàng, xoá/nhập lại sao kê KHÔNG được xoá theo.
+    // GIỮ NGUYÊN: dict_<coId> (từ điển), companies (tài khoản sao kê), tokhai_<coId>/tokhaixk_<coId>
+    // (Tờ Khai NK/XK) — dữ liệu tờ khai độc lập với sao kê ngân hàng, xoá/nhập lại sao kê KHÔNG
+    // được xoá theo.
     // 4. Nếu đang ở công ty này, reset dữ liệu nhập trên màn hình
     setInputData(prev => (prev && prev._coId === co.id)
       ? {...prev, saokePer: {}, dvText: "", drText: "", step: 1}
@@ -2114,6 +2153,7 @@ function App() {
           LS.del("dict_" + co.id);
           LS.del("tokhai_" + co.id); // Xoá HẲN công ty thì mới xoá luôn tờ khai — khác với "Xoá dữ
           // liệu đã nhập" (clearCompanyInputData) chỉ xoá sao kê, PHẢI GIỮ tờ khai lại.
+          LS.del("tokhaixk_" + co.id);
         } catch(e) {}
         saveCo(companies.filter(c => c.id !== co.id));
         cleanupOrphanStorage();
@@ -3842,12 +3882,16 @@ function ConfirmScreen({
   // ── State và refs phải khai báo trước useEffect sử dụng chúng ──────────────
   const [rows,setRows]=useState(results.map(r=>({...r})));
 
-  // ── Tờ Khai Hải quan NK: dùng chung cho cả công ty, để gợi ý/gắn vào GD thanh toán ──────────
-  const [tokhaiList, setTokhaiList] = useState(() => getCoToKhai(co.id));
+  // ── Tờ Khai Hải quan NK/XK: dùng chung cho cả công ty, để gợi ý/gắn vào GD thanh toán ─────────
+  const [tokhaiList, setTokhaiList] = useState(() => getCoToKhai(co.id, "NK"));
   const [tokhaiModalOpen, setTokhaiModalOpen] = useState(false);
   const [tokhaiPickForRow, setTokhaiPickForRow] = useState(null); // rowId khi mở bảng ở chế độ "chọn"
-  React.useEffect(() => { setTokhaiList(getCoToKhai(co.id)); }, [co.id]);
-  const saveTokhaiList = list => { setTokhaiList(list); saveCoToKhai(co.id, list); };
+  const [tokhaiXKList, setTokhaiXKList] = useState(() => getCoToKhai(co.id, "XK"));
+  const [tokhaiXKModalOpen, setTokhaiXKModalOpen] = useState(false);
+  const [tokhaiXKPickForRow, setTokhaiXKPickForRow] = useState(null);
+  React.useEffect(() => { setTokhaiList(getCoToKhai(co.id, "NK")); setTokhaiXKList(getCoToKhai(co.id, "XK")); }, [co.id]);
+  const saveTokhaiList = list => { setTokhaiList(list); saveCoToKhai(co.id, list, "NK"); };
+  const saveTokhaiXKList = list => { setTokhaiXKList(list); saveCoToKhai(co.id, list, "XK"); };
   // Màn "xem trước & sửa tay" trước khi thật sự xuất file lãi/lỗ tỷ giá.
   const [fxPreviewOpen, setFxPreviewOpen] = useState(false);
   const [fxPreviewRows, setFxPreviewRows] = useState([]);
@@ -4773,46 +4817,33 @@ function ConfirmScreen({
     showToast("✓ Đã tự xác nhận chuyển khoản nội bộ với " + sug.accLabel);
   };
 
-  // ── Gợi ý gắn Tờ khai Hải quan NK vào GD thanh toán (tiền ra) ────────────────────────────────
-  // So khớp theo SỐ HOÁ ĐƠN / SỐ TỜ KHAI xuất hiện trong nội dung giao dịch (đáng tin cậy nhất vì
-  // sao kê ngân hàng thường ghi rõ "FOR PROFORMA INVOICE NO...") — nếu không tìm được, thử so khớp
-  // gần đúng số tiền VND (dung sai 5%, vì số thực trả có thể lệch chút do phí NH/tỷ giá làm tròn).
-  const tkCore = s => String(s || "").replace(/[^A-Za-z0-9]/g, "").toUpperCase();
-  // Nội dung sao kê thường ghi kèm số tiền ngoại tệ đã thanh toán (VD "USD 7,447.50" hay
-  // "7477.50USD") — dò lấy ra để so khớp gợi ý và điền sẵn cột "Trị giá TT (NT)". Khai báo hàm này
-  // TRƯỚC "tokhaiSuggestions" (useMemo) — vì factory của useMemo chạy NGAY LẬP TỨC lúc render (khác
-  // với JSX ở cuối hàm chỉ chạy sau khi mọi const đã gán xong), nên nếu đặt hàm này ở dưới sẽ bị lỗi
-  // "Cannot access before initialization" (biến còn trong vùng chết tạm thời - TDZ) ngay khi mở màn
-  // hình xác nhận.
-  const extractForeignAmt = (desc, currency) => {
-    // "currency" (ô "NT") là ô người dùng tự gõ tay trong bảng Tờ Khai NK — nếu gõ ký tự đặc biệt
-    // (VD dấu ngoặc, dấu +) sẽ làm hỏng biểu thức chính quy (RegExp) và có thể làm sập trang — phải
-    // escape ký tự đặc biệt VÀ bọc try/catch để không bao giờ crash cả ứng dụng chỉ vì 1 ô nhập
-    // liệu currency bị gõ sai.
-    try {
-      const cur = (currency || "USD").toUpperCase().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      if (!cur) return 0;
-      const re = new RegExp("(?:" + cur + "\\s*([\\d.,]+)|([\\d.,]+)\\s*\\*?\\s*" + cur + ")", "i");
-      const m = String(desc || "").match(re);
-      if (!m) return 0;
-      return parseNum(m[1] || m[2] || "", true);
-    } catch (e) {
-      return 0;
-    }
-  };
+  // ── Gợi ý gắn Tờ khai Hải quan (NK/XK) vào GD thanh toán (NK: tiền ra, XK: tiền vào) ────────────
+  // TOÀN BỘ logic bên dưới dùng CHUNG cho cả 2 loại tờ khai (NK và XK), tham số hoá qua "kind"
+  // ("NK" mặc định hoặc "XK") — thay vì viết lại 2 lần, chỉ khác nhau ở: chiều giao dịch khớp
+  // (NK→tiền ra/debit, XK→tiền vào/credit), tài khoản hạch toán mặc định (NK→331 phải trả, XK→131
+  // phải thu), và CHIỀU dấu lãi/lỗ khi tự động tính từ chênh lệch (xem fxKindFromDiff bên dưới).
+  const tokhaiListOf = kind => kind === "XK" ? tokhaiXKList : tokhaiList;
+  const saveTokhaiListOf = kind => kind === "XK" ? saveTokhaiXKList : saveTokhaiList;
+  const tokhaiPickForRowOf = kind => kind === "XK" ? tokhaiXKPickForRow : tokhaiPickForRow;
+  const setTokhaiPickForRowOf = kind => kind === "XK" ? setTokhaiXKPickForRow : setTokhaiPickForRow;
+  const setTokhaiModalOpenOf = kind => kind === "XK" ? setTokhaiXKModalOpen : setTokhaiModalOpen;
+  const splitFlowOf = kind => kind === "XK" ? splitFlowXK : splitFlow;
+  const setSplitFlowOf = kind => kind === "XK" ? setSplitFlowXK : setSplitFlow;
+  const defaultHachOf = kind => kind === "XK" ? "131" : "331";
+  const txAmtOf = (kind, tx) => kind === "XK" ? (tx.credit || 0) : (tx.debit || 0);
   // Tờ khai đã "chốt" (đã hạch toán lãi/lỗ chênh lệch tỷ giá cho lần thanh toán cuối) coi như đã
-  // trả xong hẳn — không cần gợi ý nữa dù có giao dịch nào khác trùng số tiền/số hoá đơn.
+  // thanh toán xong hẳn — không cần gợi ý nữa dù có giao dịch nào khác trùng số tiền/số hoá đơn.
   const isTokhaiClosed = tk => tkPayments(tk).some(p => {
     const pr = rows.find(rr => rr.id === p.rowId);
     return pr && pr.fxSplit;
   });
-  const findTokhaiSuggestions = row => {
-    if (!(row.tx.debit > 0)) return [];
+  const findTokhaiSuggestions = (kind, row) => {
+    if (!(txAmtOf(kind, row.tx) > 0)) return [];
     const descU = tkCore(row.tx.desc);
-    return tokhaiList.filter(tk => {
+    return tokhaiListOf(kind).filter(tk => {
       if (isTokhaiClosed(tk)) return false;
-      // KHÔNG loại tờ khai đã có GD gắn (nhưng CHƯA chốt) — 1 tờ khai có thể được trả làm nhiều lần
-      // khác ngày (đặt cọc trước, trả nốt sau...), nên vẫn phải tiếp tục gợi ý cho các lần tiếp theo.
+      // KHÔNG loại tờ khai đã có GD gắn (nhưng CHƯA chốt) — 1 tờ khai có thể được trả/thu làm nhiều
+      // lần khác ngày (đặt cọc trước, trả/thu nốt sau...), nên vẫn phải tiếp tục gợi ý cho lần sau.
       // "Số hoá đơn" trên tờ khai thường có dạng "A - 25LN0088" (chữ "A" là ký hiệu MẪU hoá đơn,
       // không phải số hoá đơn thật) — nhưng sao kê ngân hàng chỉ ghi số thật "25LN0088", không kèm
       // ký hiệu mẫu. Trước đây so cả chuỗi "A25LN0088" nên không bao giờ khớp được — bỏ phần ký
@@ -4822,9 +4853,9 @@ function ConfirmScreen({
       const tkSoCore = String(tk.toKhaiSo || "").replace(/\D/g, "");
       if (tkSoCore.length >= 6 && descU.includes(tkSoCore)) return true;
       // So khớp theo SỐ TIỀN NGOẠI TỆ ghi rõ trong nội dung giao dịch (VD "13,350 USD") với số còn
-      // phải trả của tờ khai (trị giá HĐ trừ các lần đã trả trước đó, quy đổi theo tỷ giá tính
-      // thuế) — đáng tin cậy vì đây là số tiền THẬT ghi trong sao kê, không phải suy đoán, chỉ cho
-      // dung sai rất nhỏ (0.5%) để tránh trùng ngẫu nhiên với giao dịch không liên quan.
+      // phải trả/thu của tờ khai (trị giá HĐ trừ các lần đã trả/thu trước đó, quy đổi theo tỷ giá
+      // tính thuế) — đáng tin cậy vì đây là số tiền THẬT ghi trong sao kê, không phải suy đoán, chỉ
+      // cho dung sai rất nhỏ (0.5%) để tránh trùng ngẫu nhiên với giao dịch không liên quan.
       const foreignAmt = extractForeignAmt(row.tx.desc, tk.currency);
       if (foreignAmt > 0) {
         const remainForeign = tk.tyGiaTinhThue > 0
@@ -4838,22 +4869,26 @@ function ConfirmScreen({
   const tokhaiSuggestions = React.useMemo(() => {
     const map = {};
     rows.forEach(r => {
-      if (r.confirmed || !(r.tx.debit > 0)) return;
-      const sug = findTokhaiSuggestions(r);
+      if (r.confirmed) return;
+      // Đánh dấu _tkKind trên MỖI gợi ý (NK hay XK) — vì 1 dòng giao dịch có thể vừa gợi ý tờ khai
+      // NK vừa gợi ý tờ khai XK (hiếm nhưng có thể xảy ra), cần biết đúng loại để gọi attachTokhai
+      // (kind, rowId, tokhaiId) đúng danh sách khi người dùng bấm chọn.
+      const sug = (r.tx.debit > 0 ? findTokhaiSuggestions("NK", r).map(tk => ({ ...tk, _tkKind: "NK" })) : [])
+        .concat(r.tx.credit > 0 ? findTokhaiSuggestions("XK", r).map(tk => ({ ...tk, _tkKind: "XK" })) : []);
       if (sug.length) map[r.id] = sug;
     });
     return map;
-  }, [rows, tokhaiList]);
-  // 1 tờ khai có thể gắn với NHIỀU giao dịch thanh toán khác ngày (trả cọc trước, trả nốt sau...)
-  // — mỗi lần gắn sẽ THÊM một lần thanh toán mới vào danh sách (payments), không còn ghi đè/chỉ cho
-  // gắn đúng 1 giao dịch duy nhất như trước.
-  const attachTokhai = (rowId, tokhaiId) => {
-    const tk = tokhaiList.find(t => t.id === tokhaiId);
+  }, [rows, tokhaiList, tokhaiXKList]);
+  // 1 tờ khai có thể gắn với NHIỀU giao dịch thanh toán khác ngày (trả/thu cọc trước, trả/thu nốt
+  // sau...) — mỗi lần gắn sẽ THÊM một lần thanh toán mới vào danh sách (payments), không ghi đè.
+  const attachTokhai = (kind, rowId, tokhaiId) => {
+    const list = tokhaiListOf(kind);
+    const tk = list.find(t => t.id === tokhaiId);
     const row = rows.find(r => r.id === rowId);
     if (!tk || !row) return;
     setRowsH(prev => prev.map(r => r.id !== rowId ? r : {
       ...r, confirmed: "yes", confirmedName: tk.nhaCungCap || r.confirmedName,
-      confirmedHach: r.confirmedHach || "331", manualConfirm: true, confirmedToKhaiId: tk.id
+      confirmedHach: r.confirmedHach || defaultHachOf(kind), manualConfirm: true, confirmedToKhaiId: tk.id
     }));
     const bankVND = Math.max(row.tx.debit || 0, row.tx.credit || 0);
     const remainForeignEst = tk.tyGiaTinhThue > 0 ? Math.round((tkTaxVND(tk) - tkTotalPaidVND(tk)) / tk.tyGiaTinhThue * 100) / 100 : 0;
@@ -4861,24 +4896,24 @@ function ConfirmScreen({
     const bankRate = bankAmt > 0 ? Math.round(bankVND / bankAmt) : 0;
     const existingPayments = tkPayments(tk).filter(p => p.rowId !== rowId);
     const newPayments = [...existingPayments, { rowId, bankDate: row.tx.date, bankAmt, bankRate, bankVND }];
-    saveTokhaiList(tokhaiList.map(t => t.id !== tk.id ? t : {
+    saveTokhaiListOf(kind)(list.map(t => t.id !== tk.id ? t : {
       ...t, payments: newPayments,
       linkedRowId: undefined, bankDate: undefined, bankAmt: undefined, bankRate: undefined, bankVND: undefined
     }));
     showToast("✓ Đã gắn tờ khai " + tk.toKhaiSo + " vào giao dịch (lần TT thứ " + newPayments.length + ")");
-    setTokhaiPickForRow(null);
-    setTokhaiModalOpen(false);
+    setTokhaiPickForRowOf(kind)(null);
+    setTokhaiModalOpenOf(kind)(false);
   };
-  const openTokhaiPicker = rowId => { setTokhaiPickForRow(rowId); setTokhaiModalOpen(true); };
-  // Thanh toán "gối đầu" — 1 giao dịch NH trả 1 lần nhưng tiền được CHIA cho nhiều tờ khai khác
+  const openTokhaiPicker = (kind, rowId) => { setTokhaiPickForRowOf(kind)(rowId); setTokhaiModalOpenOf(kind)(true); };
+  // Thanh toán "gối đầu" — 1 giao dịch NH trả/thu 1 lần nhưng tiền được CHIA cho nhiều tờ khai khác
   // nhau (VD trả 5.000$: 3.000$ tất toán tờ khai A đang thiếu, 2.000$ còn dư dùng đặt cọc trước cho
   // tờ khai B chưa tới hạn). allocations: [{tokhaiId, amtVND}, ...] — ghi 1 payment riêng vào MỖI
   // tờ khai với đúng phần tiền được chia, quy đổi lại bankAmt/bankRate theo tỷ giá tính thuế của
   // TỪNG tờ khai (chính xác hơn dò tìm số ngoại tệ trong nội dung, vì đã biết chắc số VND phân bổ).
-  const attachTokhaiSplit = (rowId, allocations) => {
+  const attachTokhaiSplit = (kind, rowId, allocations) => {
     const row = rows.find(r => r.id === rowId);
     if (!row || !allocations.length) return;
-    let updatedList = tokhaiList;
+    let updatedList = tokhaiListOf(kind);
     allocations.forEach(a => {
       const tk = updatedList.find(t => t.id === a.tokhaiId);
       if (!tk) return;
@@ -4891,11 +4926,11 @@ function ConfirmScreen({
         linkedRowId: undefined, bankDate: undefined, bankAmt: undefined, bankRate: undefined, bankVND: undefined
       });
     });
-    saveTokhaiList(updatedList);
+    saveTokhaiListOf(kind)(updatedList);
     const primaryTk = updatedList.find(t => t.id === allocations[0].tokhaiId);
     setRowsH(prev => prev.map(r => r.id !== rowId ? r : {
       ...r, confirmed: "yes", confirmedName: (primaryTk && primaryTk.nhaCungCap) || r.confirmedName,
-      confirmedHach: r.confirmedHach || "331", manualConfirm: true, confirmedToKhaiId: allocations[0].tokhaiId
+      confirmedHach: r.confirmedHach || defaultHachOf(kind), manualConfirm: true, confirmedToKhaiId: allocations[0].tokhaiId
     }));
     const summary = allocations.map(a => {
       const t = updatedList.find(tk => tk.id === a.tokhaiId);
@@ -4903,58 +4938,63 @@ function ConfirmScreen({
     }).join(", ");
     showToast("✓ Đã gối đầu thanh toán cho " + allocations.length + " tờ khai (" + summary + ")");
   };
-  // splitFlow theo dõi tiến trình đang gối đầu cho 1 giao dịch: còn dư bao nhiêu (remainingVND) và
-  // đã phân bổ cho tờ khai nào rồi (allocations) — mỗi lần bấm "↷ Chọn (gối đầu)" sẽ trừ dần phần dư
-  // cho tới khi hết (hoặc người dùng đóng bảng, phần dư còn lại coi như bỏ qua không gắn tờ khai).
+  // splitFlow/splitFlowXK theo dõi tiến trình đang gối đầu cho 1 giao dịch: còn dư bao nhiêu
+  // (remainingVND) và đã phân bổ cho tờ khai nào rồi (allocations) — mỗi lần bấm "⤵ Gối đầu" sẽ trừ
+  // dần phần dư cho tới khi hết (hoặc người dùng đóng bảng, phần dư còn lại coi như bỏ qua).
   const [splitFlow, setSplitFlow] = useState(null);
+  const [splitFlowXK, setSplitFlowXK] = useState(null);
   // customAmt: người dùng tự gõ số tiền muốn gắn cho tờ khai này (VD tổng 5.000$, muốn gắn đúng
   // 3.000$ cho lô 1 dù công nợ còn thiếu của lô 1 khác con số đó) — nếu bỏ trống (null/undefined)
   // thì dùng số đề xuất tự động (= min(số còn dư, công nợ còn thiếu của tờ khai)) như trước.
-  const handlePickSplit = (tkId, customAmt) => {
-    const rowId = tokhaiPickForRow;
+  const handlePickSplit = (kind, tkId, customAmt) => {
+    const rowId = tokhaiPickForRowOf(kind);
     const row = rows.find(r => r.id === rowId);
-    const tk = tokhaiList.find(t => t.id === tkId);
+    const tk = tokhaiListOf(kind).find(t => t.id === tkId);
     if (!row || !tk) return;
-    const inFlow = splitFlow && splitFlow.rowId === rowId;
-    const remainingVND = inFlow ? splitFlow.remainingVND : Math.max(row.tx.debit || 0, row.tx.credit || 0);
+    const splitFlowCur = splitFlowOf(kind);
+    const inFlow = splitFlowCur && splitFlowCur.rowId === rowId;
+    const remainingVND = inFlow ? splitFlowCur.remainingVND : Math.max(row.tx.debit || 0, row.tx.credit || 0);
     const tkBalance = Math.max(0, tkTaxVND(tk) - tkTotalPaidVND(tk));
     const suggested = tkBalance > 0 ? Math.min(remainingVND, tkBalance) : remainingVND;
     let allocAmt = (customAmt != null && customAmt !== "") ? Math.max(0, Math.min(parseNum(customAmt, false) || 0, remainingVND)) : suggested;
     if (!allocAmt) { showToast("Số tiền gắn cho tờ khai phải lớn hơn 0", "warn"); return; }
     const leftover = remainingVND - allocAmt;
-    const allocations = [...(inFlow ? splitFlow.allocations : []), { tokhaiId: tkId, amtVND: allocAmt }];
+    const allocations = [...(inFlow ? splitFlowCur.allocations : []), { tokhaiId: tkId, amtVND: allocAmt }];
     if (leftover > 1000) {
-      setSplitFlow({ rowId, remainingVND: leftover, allocations });
+      setSplitFlowOf(kind)({ rowId, remainingVND: leftover, allocations });
       showToast("✓ Đã phân bổ " + fmt(allocAmt, "VND") + " cho tờ khai " + tk.toKhaiSo + " — còn dư " + fmt(leftover, "VND") + ", hãy chọn tiếp tờ khai để đặt cọc phần dư (hoặc bấm \"Đóng\" để bỏ qua phần dư).", "warn");
       return;
     }
-    attachTokhaiSplit(rowId, allocations);
-    setSplitFlow(null);
-    setTokhaiPickForRow(null);
-    setTokhaiModalOpen(false);
+    attachTokhaiSplit(kind, rowId, allocations);
+    setSplitFlowOf(kind)(null);
+    setTokhaiPickForRowOf(kind)(null);
+    setTokhaiModalOpenOf(kind)(false);
   };
+  // Chiều dấu lãi/lỗ khi TỰ ĐỘNG suy ra từ chênh lệch (diff = bankVND - taxVND) khác nhau giữa NK
+  // và XK vì bản chất tài khoản ngược nhau:
+  //  • NK (331 — công nợ PHẢI TRẢ): trả ÍT hơn ghi nhận (diff < 0) = LÃI (nợ giảm có lợi).
+  //  • XK (131 — công nợ PHẢI THU): thu NHIỀU hơn ghi nhận (diff > 0) = LÃI (thu về nhiều hơn có lợi).
+  // Công thức hạch toán 2 dòng (Nợ=hach/Có=515 khi lãi; Nợ=635/Có=hach khi lỗ) thì GIỐNG NHAU cho cả
+  // 2 loại — chỉ khác đúng chiều suy luận lãi/lỗ này (xem buildFxDiffPreview, không đổi).
+  const fxKindFromDiff = (kind, diff) => ((kind === "XK") ? diff > 0 : diff < 0) ? "gain" : "loss";
   // Tự hạch toán chênh lệch tỷ giá khi TỔNG tất cả các lần đã thanh toán (bankVND, có thể gồm
-  // nhiều lần khác ngày) khác tổng trị giá ghi nhận nợ ban đầu theo tờ khai (taxVND) — áp dụng vào
-  // ĐÚNG dòng giao dịch cuối cùng (đóng nợ), tách thành 2 dòng khi xuất UNC:
-  //  • Trả ÍT hơn tổng ghi nhận (bankVND < taxVND) → LÃI: Nợ 331/Có ngân hàng (đúng số dòng này tự
-  //    trả) + Nợ 331/Có 515 (phần chênh lệch).
-  //  • Trả NHIỀU hơn tổng ghi nhận (bankVND > taxVND) → LỖ: Nợ 331/Có ngân hàng (số dòng này trả,
-  //    trừ đi phần lỗ) + Nợ 635/Có ngân hàng (phần chênh lệch).
-  // Chỉ lưu "diff" (số tuyệt đối) trên dòng — số tiền THẬT của dòng đó (own) được lấy lại đúng lúc
-  // xuất UNC (bookAmt, đã tự xử lý cả trường hợp TK ngoại tệ), nên vẫn đúng dù có 1 hay nhiều lần
+  // nhiều lần khác ngày) khác tổng trị giá ghi nhận ban đầu theo tờ khai (taxVND) — áp dụng vào
+  // ĐÚNG dòng giao dịch cuối cùng (đóng nợ). Chỉ lưu "diff" (số tuyệt đối) trên dòng — số tiền THẬT
+  // của dòng đó (own) được lấy lại đúng lúc xuất UNT/UNC, nên vẫn đúng dù có 1 hay nhiều lần
   // thanh toán khác nhau cho cùng 1 tờ khai.
-  const applyFxDiff = (rowId, taxVND, bankVND) => {
+  const applyFxDiff = (kind, rowId, taxVND, bankVND) => {
     const diff = bankVND - taxVND;
     if (!diff) { showToast("Không có chênh lệch để hạch toán"); return; }
-    const kind = diff < 0 ? "gain" : "loss";
+    const fxKind = fxKindFromDiff(kind, diff);
     setRowsH(prev => prev.map(r => r.id !== rowId ? r : {
-      ...r, fxSplit: { kind, diff: Math.abs(diff) }
+      ...r, fxSplit: { kind: fxKind, diff: Math.abs(diff) }
     }));
-    showToast("✓ Đã hạch toán chênh lệch tỷ giá " + (kind === "gain" ? "LÃI (515)" : "LỖ (635)") + ": " + fmt(Math.abs(diff), "VND"));
+    showToast("✓ Đã hạch toán chênh lệch tỷ giá " + (fxKind === "gain" ? "LÃI (515)" : "LỖ (635)") + ": " + fmt(Math.abs(diff), "VND"));
   };
-  // Cho sửa tay TRỰC TIẾP ngay ở bảng "Tờ Khai NK" (cột Chênh lệch) sau khi đã bấm "HT Lãi/Lỗ" —
+  // Cho sửa tay TRỰC TIẾP ngay ở bảng Tờ Khai NK/XK (cột Chênh lệch) sau khi đã bấm "HT Lãi/Lỗ" —
   // không cần phải bấm "Xuất lãi/lỗ đã chọn" mới có chỗ chỉnh sửa như trước. signedVal ÂM = LÃI
-  // (515), DƯƠNG = LỖ (635); giá trị 0 thì bỏ hạch toán (xoá fxSplit) trên đúng dòng giao dịch đó.
+  // (515), DƯƠNG = LỖ (635) — quy ước NÀY GIỮ NGUYÊN cho cả NK/XK vì là người dùng tự gõ trực tiếp
+  // ý định (lãi/lỗ), không phải suy ra từ diff nên không cần đảo chiều. Giá trị 0 = bỏ hạch toán.
   const editFxDiff = (rowId, signedVal) => {
     const val = Math.round(signedVal || 0);
     if (!val) {
@@ -4966,16 +5006,15 @@ function ConfirmScreen({
     setRowsH(prev => prev.map(r => r.id !== rowId ? r : { ...r, fxSplit: { kind, diff: Math.abs(val) } }));
     showToast("✓ Đã sửa chênh lệch tỷ giá " + (kind === "gain" ? "LÃI (515)" : "LỖ (635)") + ": " + fmt(Math.abs(val), "VND"));
   };
-  // Xuất lãi/lỗ tỷ giá CHỈ CHO CÁC TỜ KHAI ĐÃ TICK CHỌN trong bảng Tờ Khai NK. Trước đây chỉ xuất
-  // đúng những dòng ĐÃ BẤM "⚖ HT Lãi/Lỗ" riêng lẻ trước đó — nên chọn nhiều tờ khai nhưng chưa kịp
-  // bấm tay từng dòng thì xuất ra thiếu (VD chọn 10 tờ khai nhưng chỉ có 2 dòng đã bấm nút → chỉ ra
-  // 2 dòng, đúng lỗi người dùng gặp phải). Giờ tự động ÁP DỤNG hạch toán cho MỌI tờ khai đã chọn mà
-  // còn thiếu (chưa bấm), rồi hiện màn XEM TRƯỚC cho sửa tay trước khi thật sự xuất file.
-  const exportFxDiffForTk = tkIds => {
+  // Xuất lãi/lỗ tỷ giá CHỈ CHO CÁC TỜ KHAI ĐÃ TICK CHỌN trong bảng. Trước đây chỉ xuất đúng những
+  // dòng ĐÃ BẤM "⚖ HT Lãi/Lỗ" riêng lẻ trước đó — nên chọn nhiều tờ khai nhưng chưa kịp bấm tay
+  // từng dòng thì xuất ra thiếu. Giờ tự động ÁP DỤNG hạch toán cho MỌI tờ khai đã chọn mà còn thiếu
+  // (chưa bấm), rồi hiện màn XEM TRƯỚC cho sửa tay trước khi thật sự xuất file.
+  const exportFxDiffForTk = (kind, tkIds) => {
     let workingRows = rows;
     const rowIds = new Set();
     tkIds.forEach(tkId => {
-      const tk = tokhaiList.find(t => t.id === tkId);
+      const tk = tokhaiListOf(kind).find(t => t.id === tkId);
       if (!tk) return;
       const payments = tkPayments(tk);
       if (!payments.length) return;
@@ -4984,8 +5023,8 @@ function ConfirmScreen({
       if (lastRow && !lastRow.fxSplit) {
         const diff = tkTotalPaidVND(tk) - tkTaxVND(tk);
         if (diff) {
-          const kind = diff < 0 ? "gain" : "loss";
-          workingRows = workingRows.map(r => r.id === lastRowId ? { ...r, fxSplit: { kind, diff: Math.abs(diff) } } : r);
+          const fxKind = fxKindFromDiff(kind, diff);
+          workingRows = workingRows.map(r => r.id === lastRowId ? { ...r, fxSplit: { kind: fxKind, diff: Math.abs(diff) } } : r);
         }
       }
       payments.forEach(p => rowIds.add(p.rowId));
@@ -4998,10 +5037,10 @@ function ConfirmScreen({
   };
   // Nhập nhiều file tờ khai cùng lúc — nếu số tờ khai đã có sẵn trong danh sách (trùng số) thì bỏ
   // qua, không thêm lại lần nữa, để tránh nhân đôi khi người dùng lỡ chọn lại file cũ.
-  const handleImportTokhai = async files => {
+  const handleImportTokhai = async (kind, files) => {
     const fileArr = Array.from(files || []);
     if (!fileArr.length) return;
-    let list = tokhaiList;
+    let list = tokhaiListOf(kind);
     // Ghi chi tiết TỪNG FILE (không chỉ đếm số lượng) để hiện rõ trong alert cuối cùng — tránh tình
     // trạng người dùng bấm nhập nhưng không rõ đã xảy ra chuyện gì (VD tưởng "không nhập được" trong
     // khi thực ra là bị bỏ qua vì tờ khai đó đã có sẵn từ trước).
@@ -5010,17 +5049,17 @@ function ConfirmScreen({
       try {
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: "array" });
-        const parsed = parseToKhaiWorkbook(wb);
+        const parsed = parseToKhaiWorkbook(wb, kind);
         if (!parsed) { detail.push(`✗ ${file.name}: không tìm thấy dữ liệu tờ khai hợp lệ trong file (thiếu nhãn "Số tờ khai")`); continue; }
         const existing = list.find(t => t.toKhaiSo && parsed.toKhaiSo && t.toKhaiSo === parsed.toKhaiSo);
         if (existing) { detail.push(`⏭ ${file.name}: tờ khai số ${parsed.toKhaiSo} đã có sẵn trong danh sách (bỏ qua, không nhập trùng)`); continue; }
         list = [...list, parsed];
-        detail.push(`✓ ${file.name}: đã nhập tờ khai số ${parsed.toKhaiSo} — ${parsed.nhaCungCap || "(chưa rõ nhà cung cấp)"}`);
+        detail.push(`✓ ${file.name}: đã nhập tờ khai số ${parsed.toKhaiSo} — ${parsed.nhaCungCap || (kind === "XK" ? "(chưa rõ khách hàng)" : "(chưa rõ nhà cung cấp)")}`);
       } catch (e) {
         detail.push(`✗ ${file.name}: lỗi đọc file — ${e.message || e}`);
       }
     }
-    if (list !== tokhaiList) saveTokhaiList(list);
+    if (list !== tokhaiListOf(kind)) saveTokhaiListOf(kind)(list);
     alert("Kết quả nhập tờ khai:\n\n" + detail.join("\n"));
   };
 
@@ -5547,19 +5586,23 @@ function ConfirmScreen({
     onClick:()=>{setTokhaiPickForRow(null);setTokhaiModalOpen(true);}
   }, "📋 Tờ Khai NK" + (tokhaiList.length ? " (" + tokhaiList.length + ")" : "")),/*#__PURE__*/React.createElement("button",{
     className:"btn btn-outline",
+    title:"Quản lý Tờ khai Hải quan XK — nhập từ file tờ khai, dùng để gắn vào GD thu tiền",
+    onClick:()=>{setTokhaiXKPickForRow(null);setTokhaiXKModalOpen(true);}
+  }, "📋 Tờ Khai XK" + (tokhaiXKList.length ? " (" + tokhaiXKList.length + ")" : "")),/*#__PURE__*/React.createElement("button",{
+    className:"btn btn-outline",
     onClick:()=>exportExcel(rows,co&&co.name||"export",[...coDict,...globalDict])
   }, "\uD83D\uDCE5 Xu\u1EA5t Excel"),/*#__PURE__*/React.createElement("button",{
     className:"btn btn-outline",
     title:"Xuất chứng từ thu tiền (tiền vào) theo mẫu import MISA",
     onClick:()=>exportUNT(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []),
       (activeTabAcc&&activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc&&activeTabAcc.label),
-      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast)
+      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast, [...tokhaiList, ...tokhaiXKList])
   }, "\uD83D\uDCE5 Xuất UNT"),/*#__PURE__*/React.createElement("button",{
     className:"btn btn-outline",
     title:"Xuất chứng từ chi tiền gửi (tiền ra) theo mẫu import MISA",
     onClick:()=>exportUNC(rows, co&&co.name||"export", (activeTabAcc&&activeTabAcc.misaAcct) || suggestMisaAcct(activeTabAcc&&activeTabAcc.label, activeTabAcc&&activeTabAcc.currency, []),
       (activeTabAcc&&activeTabAcc.accountNo) || suggestAccountNo(activeTabAcc&&activeTabAcc.label),
-      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast, tokhaiList)
+      (activeTabAcc&&activeTabAcc.bankName) || suggestBankName(activeTabAcc&&activeTabAcc.label), showToast, [...tokhaiList, ...tokhaiXKList])
   }, "\uD83D\uDCE5 Xu\u1EA5t UNC"), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-green",
     onClick: handleSaveAndLearn
@@ -6013,24 +6056,46 @@ filtered.map((r, idx) => /*#__PURE__*/React.createElement(ConfirmRow, {
     onOpenTokhaiPicker: openTokhaiPicker,
     searchTerm: search
   }))), tokhaiModalOpen && /*#__PURE__*/React.createElement(ToKhaiModal, {
+    kind: "NK",
     list: tokhaiList,
     onClose: () => { setTokhaiModalOpen(false); setTokhaiPickForRow(null); setSplitFlow(null); },
     onSave: saveTokhaiList,
-    onImportFile: handleImportTokhai,
+    onImportFile: files => handleImportTokhai("NK", files),
     pickForRowId: tokhaiPickForRow,
     pickForRowDesc: tokhaiPickForRow ? (() => { const pr = rows.find(r => r.id === tokhaiPickForRow); return pr ? pr.tx.desc + " — Tiền ra: " + fmt(pr.tx.debit, pr.tx.currency) : ""; })() : "",
-    onPick: tkId => { setSplitFlow(null); attachTokhai(tokhaiPickForRow, tkId); },
-    onPickSplit: handlePickSplit,
+    onPick: tkId => { setSplitFlow(null); attachTokhai("NK", tokhaiPickForRow, tkId); },
+    onPickSplit: (tkId, customAmt) => handlePickSplit("NK", tkId, customAmt),
     splitRemainingVND: tokhaiPickForRow
       ? (splitFlow && splitFlow.rowId === tokhaiPickForRow
         ? splitFlow.remainingVND
         : (() => { const pr = rows.find(r => r.id === tokhaiPickForRow); return pr ? Math.max(pr.tx.debit || 0, pr.tx.credit || 0) : null; })())
       : null,
     splitInProgress: !!(splitFlow && splitFlow.rowId === tokhaiPickForRow),
-    onApplyFxDiff: applyFxDiff,
+    onApplyFxDiff: (rowId, taxVND, bankVND) => applyFxDiff("NK", rowId, taxVND, bankVND),
     onEditFxDiff: editFxDiff,
     bankRows: rows,
-    onExportFxDiff: exportFxDiffForTk,
+    onExportFxDiff: tkIds => exportFxDiffForTk("NK", tkIds),
+    showToast
+  }), tokhaiXKModalOpen && /*#__PURE__*/React.createElement(ToKhaiModal, {
+    kind: "XK",
+    list: tokhaiXKList,
+    onClose: () => { setTokhaiXKModalOpen(false); setTokhaiXKPickForRow(null); setSplitFlowXK(null); },
+    onSave: saveTokhaiXKList,
+    onImportFile: files => handleImportTokhai("XK", files),
+    pickForRowId: tokhaiXKPickForRow,
+    pickForRowDesc: tokhaiXKPickForRow ? (() => { const pr = rows.find(r => r.id === tokhaiXKPickForRow); return pr ? pr.tx.desc + " — Tiền vào: " + fmt(pr.tx.credit, pr.tx.currency) : ""; })() : "",
+    onPick: tkId => { setSplitFlowXK(null); attachTokhai("XK", tokhaiXKPickForRow, tkId); },
+    onPickSplit: (tkId, customAmt) => handlePickSplit("XK", tkId, customAmt),
+    splitRemainingVND: tokhaiXKPickForRow
+      ? (splitFlowXK && splitFlowXK.rowId === tokhaiXKPickForRow
+        ? splitFlowXK.remainingVND
+        : (() => { const pr = rows.find(r => r.id === tokhaiXKPickForRow); return pr ? Math.max(pr.tx.debit || 0, pr.tx.credit || 0) : null; })())
+      : null,
+    splitInProgress: !!(splitFlowXK && splitFlowXK.rowId === tokhaiXKPickForRow),
+    onApplyFxDiff: (rowId, taxVND, bankVND) => applyFxDiff("XK", rowId, taxVND, bankVND),
+    onEditFxDiff: editFxDiff,
+    bankRows: rows,
+    onExportFxDiff: tkIds => exportFxDiffForTk("XK", tkIds),
     showToast
   }), fxPreviewOpen && /*#__PURE__*/React.createElement(FxDiffPreviewModal, {
     rows: fxPreviewRows,
@@ -6106,7 +6171,11 @@ function FxDiffPreviewModal({ rows, onClose, onExport }) {
 
 // ── Bảng quản lý Tờ khai Hải quan NK: xem/sửa tay/nhập từ file tờ khai/xoá, và (khi mở ở chế độ
 // "chọn cho 1 giao dịch") cho chọn 1 tờ khai để gắn thẳng vào GD thanh toán đang xem trên sao kê ──
-function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onPickSplit, splitRemainingVND, splitInProgress, onApplyFxDiff, onEditFxDiff, bankRows, onExportFxDiff, showToast }) {
+function ToKhaiModal({ kind, list, onClose, onSave, onImportFile, pickForRowId, pickForRowDesc, onPick, onPickSplit, splitRemainingVND, splitInProgress, onApplyFxDiff, onEditFxDiff, bankRows, onExportFxDiff, showToast }) {
+  const isXK = kind === "XK";
+  // Tờ NK: đối tác là "Nhà cung cấp" (mình mua). Tờ XK: đối tác là "Khách hàng" (mình bán) — CÙNG 1
+  // trường dữ liệu tk.nhaCungCap, chỉ đổi nhãn hiển thị cho đúng ngữ cảnh.
+  const partnerLabel = isXK ? "Khách hàng" : "Nhà cung cấp";
   // Số tiền tự gõ tay cho từng tờ khai khi gối đầu (VD tổng 5.000$ nhưng muốn gắn đúng 3.000$ cho
   // lô 1 dù công nợ còn thiếu khác con số đó) — key theo tk.id, reset mỗi khi đổi giao dịch đang chọn.
   const [splitAmt, setSplitAmt] = useState({});
@@ -6278,11 +6347,11 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
       " — gõ số tiền muốn gắn (hoặc để trống dùng số đề xuất) rồi bấm \"⤵ Gối đầu\" ở tờ khai kế tiếp, hoặc bấm \"Đóng\" để bỏ qua phần dư."
     ),
     React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" } },
-      React.createElement("div", { style: { fontWeight: 700, fontSize: 16 } }, "📋 Tờ Khai Hải quan NK"),
-      pickForRowId && React.createElement("div", { style: { background: "#eef2ff", color: "#3730a3", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600 } }, "Đang chọn tờ khai để gắn vào giao dịch thanh toán — bấm \"✓ Chọn\" ở dòng phù hợp"),
+      React.createElement("div", { style: { fontWeight: 700, fontSize: 16 } }, isXK ? "📋 Tờ Khai Hải quan XK" : "📋 Tờ Khai Hải quan NK"),
+      pickForRowId && React.createElement("div", { style: { background: "#eef2ff", color: "#3730a3", borderRadius: 6, padding: "4px 10px", fontSize: 12, fontWeight: 600 } }, "Đang chọn tờ khai để gắn vào giao dịch " + (isXK ? "thu tiền" : "thanh toán") + " — bấm \"✓ Chọn\" ở dòng phù hợp"),
       React.createElement("input", {
         value: search, onChange: e => setSearch(e.target.value),
-        placeholder: "🔍 Tìm số tờ khai / nhà cung cấp / số hoá đơn...",
+        placeholder: "🔍 Tìm số tờ khai / " + partnerLabel.toLowerCase() + " / số hoá đơn...",
         style: { flex: 1, minWidth: 260, height: 34, fontSize: 13, borderRadius: 6, border: "1px solid var(--border)", padding: "0 10px" }
       }),
       React.createElement("label", { className: "btn btn-outline", style: { height: 32, display: "inline-flex", alignItems: "center", cursor: "pointer", fontSize: 12 } },
@@ -6306,8 +6375,8 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
             React.createElement("thead", null,
               React.createElement("tr", null,
                 React.createElement("th", { style: { padding: "4px 8px" } }, ""),
-                React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TỜ KHAI HẢI QUAN NK"),
-                React.createElement("th", { colSpan: 6, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TRỊ GIÁ"),
+                React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, isXK ? "TỜ KHAI HẢI QUAN XK" : "TỜ KHAI HẢI QUAN NK"),
+                React.createElement("th", { colSpan: isXK ? 4 : 6, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "TRỊ GIÁ"),
                 React.createElement("th", { colSpan: 4, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#1d4ed8", background: "#eef2ff" } }, "CHỨNG TỪ NGÂN HÀNG"),
                 React.createElement("th", { colSpan: 2, style: { padding: "4px 8px", textAlign: "left", fontSize: 11, color: "#7c3aed", background: "#f5f0ff" } }, "CHÊNH LỆCH"),
                 React.createElement("th", { style: { padding: "4px 8px" } }, "")
@@ -6324,9 +6393,9 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                     }
                   })
                 ),
-                th("Nhà cung cấp", 220), th("Tờ khai số", 110), th("Ngày TK", 115), th("Số hoá đơn", 130),
+                th(partnerLabel, 220), th("Tờ khai số", 110), th("Ngày TK", 115), th("Số hoá đơn", 130),
                 th("Trị giá HĐ", 110), th("NT", 50), th("Tỷ giá thuế", 100), th("Trị giá thuế (VND)", 130),
-                th("Thuế NK", 110), th("Thuế GTGT NK", 120),
+                ...(isXK ? [] : [th("Thuế NK", 110), th("Thuế GTGT NK", 120)]),
                 th("Ngày TT", 110), th("Trị giá TT (NT)", 120), th("Tỷ giá TT", 100), th("Đồng Việt Nam TT", 130),
                 th("VND", 110), th("NT", 90), th("", 100)
               ),
@@ -6341,7 +6410,7 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("triGiaHoaDon")),
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("currency")),
                 React.createElement("td", { style: { padding: "3px 6px" } }, colFilterInput("tyGiaTinhThue")),
-                React.createElement("td", { colSpan: 10, style: { padding: "3px 6px" } })
+                React.createElement("td", { colSpan: isXK ? 8 : 10, style: { padding: "3px 6px" } })
               )
             ),
             React.createElement("tbody", null, filtered.map(tk => {
@@ -6370,10 +6439,9 @@ function ToKhaiModal({ list, onClose, onSave, onImportFile, pickForRowId, pickFo
                 // Trị giá thuế = Trị giá HĐ × Tỷ giá tính thuế — LUÔN tự tính, hiện định dạng số tiền
                 // (không cho sửa tay trực tiếp; muốn đổi thì sửa Trị giá HĐ hoặc Tỷ giá tính thuế).
                 td(React.createElement("div", { style: { padding: "3px 4px", fontWeight: 600 } }, taxVND ? fmt(taxVND, "VND") : "")),
-                // Thuế NK / Thuế GTGT NK — đọc từ bảng tổng hợp "Tên sắc thuế" trên tờ khai lúc import
-                // (tkTaxSummary), cho sửa tay nếu cần đối chiếu lại với số thực tế đã nộp.
-                td(numInput(tk, "thueNK")),
-                td(numInput(tk, "thueGTGT")),
+                // Thuế NK / Thuế GTGT NK — chỉ áp dụng tờ khai NHẬP KHẨU, đọc từ bảng tổng hợp "Tên
+                // sắc thuế" trên tờ khai lúc import (tkTaxSummary). Tờ khai XUẤT KHẨU không cần.
+                ...(isXK ? [] : [td(numInput(tk, "thueNK")), td(numInput(tk, "thueGTGT"))]),
                 // 1 tờ khai có thể có NHIỀU lần thanh toán khác ngày — mỗi lần hiện 1 dòng riêng
                 // trong cùng ô, có nút ✕ để bỏ gắn đúng lần đó (không ảnh hưởng các lần khác).
                 td(payments.length
@@ -7153,11 +7221,11 @@ function ConfirmRow({
       style: { display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }
     },
       /*#__PURE__*/React.createElement("span", { style: { color: "#3730a3" } },
-        "Tờ khai " + (tk.toKhaiSo||"") + " (" + (tk.ngayToKhai||"?") + ")" + " — " + (tk.nhaCungCap||"") + " — HĐ " + (tk.soHoaDon||"") + " — " + fmt(tk.triGiaHoaDon||0, tk.currency||"USD") + " — " + fmt(tkTaxVND(tk), "VND") +
+        (tk._tkKind === "XK" ? "[XK] " : "[NK] ") + "Tờ khai " + (tk.toKhaiSo||"") + " (" + (tk.ngayToKhai||"?") + ")" + " — " + (tk.nhaCungCap||"") + " — HĐ " + (tk.soHoaDon||"") + " — " + fmt(tk.triGiaHoaDon||0, tk.currency||"USD") + " — " + fmt(tkTaxVND(tk), "VND") +
         (tkPayments(tk).length ? " (đã trả " + tkPayments(tk).length + " lần, còn lại " + fmt(tkTaxVND(tk) - tkTotalPaidVND(tk), "VND") + ")" : "")
       ),
       /*#__PURE__*/React.createElement("button", {
-        onClick: e => { e.stopPropagation(); onAttachTokhai(r.id, tk.id); },
+        onClick: e => { e.stopPropagation(); onAttachTokhai(tk._tkKind || "NK", r.id, tk.id); },
         style: { fontSize: 11, padding: "3px 10px", borderRadius: 5, border: "none", background: "#7c3aed", color: "#fff", cursor: "pointer", fontWeight: 600 }
       }, "✓ Gắn tờ khai")
     ))
@@ -7290,7 +7358,7 @@ function ConfirmRow({
       cursor: "pointer"
     }
   }, "\uD83D\uDCC4 Ch\u1ECDn H\u0110"), isDebit && onOpenTokhaiPicker && /*#__PURE__*/React.createElement("button", {
-    onClick: () => onOpenTokhaiPicker(r.id),
+    onClick: () => onOpenTokhaiPicker("NK", r.id),
     title: "Ch\u1ECDn t\u1EEB danh s\u00E1ch T\u1EDD khai H\u1EA3i quan NK \u0111\u1EC3 g\u1EAFn v\u00E0o giao d\u1ECBch thanh to\u00E1n n\u00E0y",
     style: {
       height: 30,
@@ -7301,7 +7369,19 @@ function ConfirmRow({
       fontSize: 12,
       cursor: "pointer"
     }
-  }, "\uD83D\uDCCB Ch\u1ECDn t\u1EDD khai"), /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDCCB Ch\u1ECDn t\u1EDD khai"), !isDebit && onOpenTokhaiPicker && /*#__PURE__*/React.createElement("button", {
+    onClick: () => onOpenTokhaiPicker("XK", r.id),
+    title: "Ch\u1ECDn t\u1EEB danh s\u00E1ch T\u1EDD khai H\u1EA3i quan XK \u0111\u1EC3 g\u1EAFn v\u00E0o giao d\u1ECBch thu ti\u1EC1n n\u00E0y",
+    style: {
+      height: 30,
+      borderRadius: 7,
+      border: "1px solid #7c3aed",
+      background: "transparent",
+      color: "#7c3aed",
+      fontSize: 12,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDCCB Ch\u1ECDn t\u1EDD khai XK"), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       setEditMST(r.confirmedMST || "");
       setEditName(r.confirmedName || "");
