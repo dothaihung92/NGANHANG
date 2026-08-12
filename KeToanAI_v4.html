@@ -74,7 +74,7 @@
 // ── Auto-update: kiểm tra bản mới trên GitHub mỗi khi mở file ─────────────────
 // Tăng số này lên mỗi khi có thay đổi được đẩy lên GitHub, để app tự nhận biết
 // có bản mới hơn bản đang chạy trên máy người dùng.
-const APP_VERSION = "2026.07.06.06";
+const APP_VERSION = "2026.07.06.07";
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/dothaihung92/NGANHANG/claude/bank-reconciliation-review-a1rpwp/KeToanAI_v4.html";
 
 // ── Storage ──────────────────────────────────────────────────────────────────
@@ -5695,14 +5695,17 @@ function ConfirmScreen({
       opacity: .85
     }}, filter === "wronghach" ? "→ Đang lọc — nhấn để bỏ" : "→ Nhấn để lọc và kiểm tra")
   ),
+  // Thay 4 ô thống kê cũ (Tổng GD/Tự động/Chờ xử lý/Không khớp) bằng 2 ô Tổng tiền vào/ra của ĐÚNG
+  // danh sách đang lọc hiện tại (theo tab + ô tìm kiếm/bộ lọc đang áp dụng) — số to, rõ, dễ đối
+  // chiếu ngay với số liệu ngân hàng, đúng theo yêu cầu thay vì chữ nhỏ nằm chung dòng phím tắt.
   /*#__PURE__*/React.createElement("div", {
     style: {
       display: "grid",
-      gridTemplateColumns: "repeat(4,1fr)",
+      gridTemplateColumns: "repeat(2,1fr)",
       gap: 8,
       marginBottom: 8
     }
-  }, [["Tổng GD", rows.length, "var(--text2)"], ["Tự động ✓", autoOk, "var(--green)"], ["Chờ xử lý", pending, "var(--amber)"], ["Không khớp", rejected, "var(--red)"]].map(([lb, v, c]) => /*#__PURE__*/React.createElement("div", {
+  }, [["Tổng tiền vào", filtered.reduce((s, r) => s + (r.tx.credit || 0), 0), "var(--green-d)"], ["Tổng tiền ra", filtered.reduce((s, r) => s + (r.tx.debit || 0), 0), "#dc2626"]].map(([lb, v, c]) => /*#__PURE__*/React.createElement("div", {
     key: lb,
     style: {
       background: "#fff",
@@ -5717,11 +5720,11 @@ function ConfirmScreen({
     }
   }, lb), /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 20,
-      fontWeight: 600,
+      fontSize: 24,
+      fontWeight: 700,
       color: c
     }
-  }, v)))), /*#__PURE__*/React.createElement("div", {
+  }, fmt(v, activeTabAcc ? activeTabAcc.currency : "VND"))))), /*#__PURE__*/React.createElement("div", {
     className: "flex",
     style: {
       gap: 6,
@@ -5822,19 +5825,7 @@ function ConfirmScreen({
       borderRadius: 3,
       padding: "0 4px"
     }
-  }, "Esc"), " Ra ngo\xE0i \xA0", /*#__PURE__*/React.createElement("kbd",{style:{background:"#fff",border:"1px solid #ddd",borderRadius:3,padding:"0 4px"}},"Alt+T"), " Ti\u1EC1n M\u1EB7t"),
-  // T\u1ED5ng ti\u1EC1n v\u00E0o/ti\u1EC1n ra c\u1EE7a \u0110\u00DANG danh s\u00E1ch \u0111ang l\u1ECDc hi\u1EC7n t\u1EA1i (theo tab + \u00F4 t\u00ECm ki\u1EBFm/b\u1ED9 l\u1ECDc \u0111ang
-  // \u00E1p d\u1EE5ng) \u2014 gi\u00FAp \u0111\u1ED1i chi\u1EBFu nhanh v\u1EDBi s\u1ED1 li\u1EC7u ng\u00E2n h\u00E0ng m\u00E0 kh\u00F4ng c\u1EA7n c\u1ED9ng tay.
-  /*#__PURE__*/React.createElement("span", {
-    style: { display: "flex", alignItems: "center", gap: 10, marginLeft: 12, fontWeight: 600 }
-  },
-    /*#__PURE__*/React.createElement("span", { style: { color: "var(--green-d)" } },
-      "\u2191 V\xE0o: ", fmt(filtered.reduce((s, r) => s + (r.tx.credit || 0), 0), activeTabAcc ? activeTabAcc.currency : "VND")
-    ),
-    /*#__PURE__*/React.createElement("span", { style: { color: "#dc2626" } },
-      "\u2193 Ra: ", fmt(filtered.reduce((s, r) => s + (r.tx.debit || 0), 0), activeTabAcc ? activeTabAcc.currency : "VND")
-    )
-  ), /*#__PURE__*/React.createElement("label", {
+  }, "Esc"), " Ra ngo\xE0i \xA0", /*#__PURE__*/React.createElement("kbd",{style:{background:"#fff",border:"1px solid #ddd",borderRadius:3,padding:"0 4px"}},"Alt+T"), " Ti\u1EC1n M\u1EB7t"), /*#__PURE__*/React.createElement("label", {
     style: {
       marginLeft: "auto",
       display: "flex",
